@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Run a new lunar crater impact simulation using the Pi-Scaling Crater Model. View interactive terrain maps and cross-section profiles.">
+    <title>LunaLab — New Experiment</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+    <style>
+        /* ── Terrain section extras ─────────────────────────── */
+        .terrain-toggle {
+            display: flex;
+            gap: var(--space-xs);
+            margin-bottom: var(--space-md);
+        }
+        .terrain-toggle button {
+            padding: 0.4rem 1rem;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-primary);
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: var(--font-sans);
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+        .terrain-toggle button.active {
+            background: var(--accent-indigo-glow);
+            border-color: var(--accent-indigo);
+            color: var(--accent-indigo-hover);
+        }
+        .terrain-legend {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            margin-top: var(--space-md);
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+        .terrain-legend-gradient {
+            width: 120px;
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #312e81, #6366f1, #22d3ee, #34d399, #fbbf24);
+        }
+        /* ── Notes field ────────────────────────────────────── */
+        .form-textarea {
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            padding: 0.7rem 0.9rem;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            font-size: 0.88rem;
+            line-height: 1.5;
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+            outline: none;
+            width: 100%;
+            resize: vertical;
+            min-height: 72px;
+        }
+        .form-textarea::placeholder { color: var(--text-muted); }
+        .form-textarea:focus {
+            border-color: var(--accent-indigo);
+            box-shadow: 0 0 0 3px var(--accent-indigo-glow);
+        }
+        /* ── Saved banner ───────────────────────────────────── */
+        .saved-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-xs);
+            padding: 0.3rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: rgba(52, 211, 153, 0.12);
+            color: var(--accent-emerald);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+        /* ── Chart container tall variant ───────────────────── */
+        .chart-container--tall {
+            min-height: 440px;
+        }
+        /* ── Annotation tags ────────────────────────────────── */
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-xs);
+            margin-top: var(--space-sm);
+        }
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(99,102,241,0.12);
+            color: var(--accent-indigo-hover);
+            font-size: 0.72rem;
+            font-weight: 500;
+            border: 1px solid rgba(99,102,241,0.25);
+            cursor: pointer;
+            transition: background var(--transition-fast);
+        }
+        .tag:hover { background: rgba(99,102,241,0.22); }
+        .tag.active {
+            background: var(--accent-indigo);
+            color: #fff;
+            border-color: var(--accent-indigo);
+        }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link" id="nav-dashboard">Dashboard</a></li>
+                <li><a href="/experiment" class="navbar__link navbar__link--active" id="nav-experiment">New Experiment</a></li>
+                <li><a href="/history" class="navbar__link" id="nav-history">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container container--narrow">
+
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1 class="page-header__title" id="page-title">New Experiment</h1>
+            <p class="page-header__subtitle" id="page-subtitle">
+                Configure impact parameters and run a crater-scaling simulation.
+            </p>
+        </div>
+
+        <!-- Disclaimer -->
+        <div class="disclaimer">
+            This prototype uses a simplified crater scaling model for educational and experimental purposes.
+            It is not a full physical simulation of impact processes.
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════
+             Input Form
+             ═══════════════════════════════════════════════════ -->
+        <section class="section" id="section-form">
+            <div class="card">
+                <h2 class="card__title">
+                    <span class="card__title-icon">🎯</span>
+                    Impact Parameters
+                </h2>
+
+                <form id="simulation-form" class="form-grid" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="impactor_diameter">
+                            Impactor Diameter <span class="form-label__unit">(m)</span>
+                        </label>
+                        <input type="number" id="impactor_diameter" class="form-input"
+                               placeholder="e.g. 10" step="any" min="0.001">
+                        <span class="form-error hidden" id="err-diameter"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="impact_velocity">
+                            Impact Velocity <span class="form-label__unit">(m/s)</span>
+                        </label>
+                        <input type="number" id="impact_velocity" class="form-input"
+                               placeholder="e.g. 20000" step="any" min="1">
+                        <span class="form-error hidden" id="err-velocity"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="impact_angle">
+                            Impact Angle <span class="form-label__unit">(° from vertical)</span>
+                        </label>
+                        <input type="number" id="impact_angle" class="form-input"
+                               placeholder="e.g. 45" step="any" min="0.1" max="90">
+                        <span class="form-error hidden" id="err-angle"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="impactor_density">
+                            Impactor Density <span class="form-label__unit">(kg/m³, default 3000)</span>
+                        </label>
+                        <input type="number" id="impactor_density" class="form-input"
+                               placeholder="3000" step="any" min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="target_density">
+                            Target Density <span class="form-label__unit">(kg/m³, default 2500)</span>
+                        </label>
+                        <input type="number" id="target_density" class="form-input"
+                               placeholder="2500" step="any" min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="surface_gravity">
+                            Surface Gravity <span class="form-label__unit">(m/s², default 1.62 — Moon)</span>
+                        </label>
+                        <input type="number" id="surface_gravity" class="form-input"
+                               placeholder="1.62" step="any" min="0.01">
+                    </div>
+
+                    <!-- Experiment notes (full-width) -->
+                    <div class="form-group--full">
+                        <label class="form-label" for="experiment_notes">
+                            Notes <span class="form-label__unit">(optional)</span>
+                        </label>
+                        <textarea id="experiment_notes" class="form-textarea"
+                                  placeholder="Describe the scenario, hypothesis, or reference (e.g. 'Chicxulub-scale test, stony impactor, 45° oblique')…"
+                                  rows="2"></textarea>
+                        <!-- Quick-tag shortcuts -->
+                        <div class="tag-list" id="quick-tags">
+                            <span class="tag" data-tag="Stony">🪨 Stony</span>
+                            <span class="tag" data-tag="Iron">⚙️ Iron</span>
+                            <span class="tag" data-tag="Oblique">↗ Oblique</span>
+                            <span class="tag" data-tag="Vertical">⬇ Vertical</span>
+                            <span class="tag" data-tag="Low-velocity">🐢 Low-vel</span>
+                            <span class="tag" data-tag="High-velocity">⚡ High-vel</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group--full mt-md">
+                        <button type="submit" class="btn btn--primary btn--lg btn--full" id="btn-run">
+                            ▶ Run Simulation
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════
+             Results (hidden until simulation runs)
+             ═══════════════════════════════════════════════════ -->
+        <section class="section hidden" id="section-results">
+            <div class="card card--glow">
+                <h2 class="card__title">
+                    <span class="card__title-icon">📊</span>
+                    Simulation Result
+                    <span class="badge badge--model" id="result-model"></span>
+                    <span class="saved-badge hidden" id="saved-badge">✓ Saved</span>
+                </h2>
+
+                <!-- Warnings -->
+                <ul class="warnings-list hidden" id="warnings-list"></ul>
+
+                <!-- Metric cards -->
+                <div class="results-grid mt-lg">
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-crater-diam">—</div>
+                        <div class="result-metric__label">Crater Diameter</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-crater-depth">—</div>
+                        <div class="result-metric__label">Crater Depth</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-rim-height">—</div>
+                        <div class="result-metric__label">Rim Height</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-transient">—</div>
+                        <div class="result-metric__label">Transient Crater ⌀</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-ejecta">—</div>
+                        <div class="result-metric__label">Ejecta Volume</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="res-energy">—</div>
+                        <div class="result-metric__label">Impact Energy</div>
+                    </div>
+                </div>
+
+                <!-- Notes display -->
+                <div id="notes-display" class="hidden" style="margin-top:var(--space-lg);">
+                    <div style="font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;">Experiment Notes</div>
+                    <div id="notes-text" style="font-size:0.88rem;color:var(--text-secondary);line-height:1.6;padding:.6rem .8rem;background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px solid var(--border-primary);"></div>
+                </div>
+
+                <!-- Experiment ID & actions -->
+                <div class="flex items-center justify-between mt-xl">
+                    <span class="experiment-header__id" id="res-experiment-id"></span>
+                    <div class="flex gap-sm">
+                        <a href="/history" class="btn btn--secondary" id="btn-go-history">View in History</a>
+                        <button class="btn btn--primary" id="btn-new-run" onclick="resetForm()">
+                            + New Run
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════
+             Synthetic Terrain Map (NEW)
+             ═══════════════════════════════════════════════════ -->
+        <section class="section hidden" id="section-terrain">
+            <div class="card">
+                <h2 class="card__title">
+                    <span class="card__title-icon">🗺️</span>
+                    Synthetic Elevation Map
+                </h2>
+                <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:var(--space-md);">
+                    2-D terrain field generated from crater geometry: parabolic bowl, Gaussian rim,
+                    and power-law ejecta blanket. Colour encodes elevation.
+                </p>
+
+                <!-- View toggle -->
+                <div class="terrain-toggle">
+                    <button id="btn-heatmap" class="active" onclick="switchTerrainView('heatmap')">Heatmap</button>
+                    <button id="btn-surface" onclick="switchTerrainView('surface')">3D Surface</button>
+                    <button id="btn-contour" onclick="switchTerrainView('contour')">Contour</button>
+                </div>
+
+                <div class="chart-container chart-container--tall" id="chart-terrain"></div>
+
+                <!-- Colour legend hint -->
+                <div class="terrain-legend">
+                    <span>Low</span>
+                    <div class="terrain-legend-gradient"></div>
+                    <span>High</span>
+                    <span style="margin-left:auto;">Elevation (m)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════
+             Crater Profile (cross-section)
+             ═══════════════════════════════════════════════════ -->
+        <section class="section hidden" id="section-profile">
+            <div class="card">
+                <h2 class="card__title">
+                    <span class="card__title-icon">🌋</span>
+                    Crater Cross-Section Profile
+                </h2>
+                <div class="chart-container" id="chart-profile"></div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════
+             Parameter / Result Bar Chart
+             ═══════════════════════════════════════════════════ -->
+        <section class="section hidden" id="section-params-chart">
+            <div class="card">
+                <h2 class="card__title">
+                    <span class="card__title-icon">📈</span>
+                    Parameter &amp; Result Overview
+                </h2>
+                <div class="chart-container" id="chart-params"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let _elevationData   = null;   // cached elevation field for view switching
+let _terrainViewMode = 'heatmap';
+
+// ---------------------------------------------------------------------------
+// Quick-tag toggle logic
+// ---------------------------------------------------------------------------
+document.getElementById('quick-tags').addEventListener('click', (e) => {
+    const tag = e.target.closest('.tag');
+    if (!tag) return;
+    const label = tag.dataset.tag;
+    const textarea = document.getElementById('experiment_notes');
+    const active = tag.classList.toggle('active');
+    if (active) {
+        // Append tag to notes if not already present
+        if (!textarea.value.includes(label)) {
+            textarea.value = textarea.value
+                ? textarea.value.trim() + ' | ' + label
+                : label;
+        }
+    } else {
+        // Remove tag text from notes
+        textarea.value = textarea.value
+            .replace(new RegExp('\\s*\\|?\\s*' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\|?\\s*', 'g'), ' ')
+            .trim()
+            .replace(/^\||\|$/g, '')
+            .trim();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Check if we're viewing an existing experiment (via ?id=...)
+// ---------------------------------------------------------------------------
+const urlParams = new URLSearchParams(window.location.search);
+const viewId = urlParams.get('id');
+
+if (viewId) {
+    loadExistingExperiment(parseInt(viewId, 10));
+}
+
+async function loadExistingExperiment(id) {
+    try {
+        const [exp, profile, elevation] = await Promise.all([
+            apiGet(`/api/experiments/${id}`),
+            apiGet(`/api/experiments/${id}/profile`),
+            apiGet(`/api/experiments/${id}/elevation`),
+        ]);
+
+        // Update page title
+        document.getElementById('page-title').textContent = `Experiment #${id}`;
+        document.getElementById('page-subtitle').textContent = `Viewing saved experiment results.`;
+
+        // Fill form with saved values (read-only feel)
+        document.getElementById('impactor_diameter').value = exp.impactor_diameter;
+        document.getElementById('impact_velocity').value   = exp.impact_velocity;
+        document.getElementById('impact_angle').value      = exp.impact_angle;
+        document.getElementById('impactor_density').value  = exp.impactor_density;
+        document.getElementById('target_density').value    = exp.target_density;
+        document.getElementById('surface_gravity').value   = exp.surface_gravity;
+
+        displayResults({
+            experiment_id: exp.id,
+            crater_diameter: exp.crater_diameter,
+            crater_depth: exp.crater_depth,
+            rim_height: exp.rim_height,
+            transient_crater_diameter: exp.transient_crater_diameter,
+            ejecta_volume: exp.ejecta_volume,
+            energy_joules: exp.energy_joules,
+            model: exp.model_name,
+            warnings: JSON.parse(exp.warnings_json || '[]'),
+        }, profile, elevation, exp, /* isSaved= */ true);
+    } catch (err) {
+        showToast('Failed to load experiment: ' + err.message, 'error');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Form submission
+// ---------------------------------------------------------------------------
+document.getElementById('simulation-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors();
+
+    const diameter = parseFloat(document.getElementById('impactor_diameter').value);
+    const velocity = parseFloat(document.getElementById('impact_velocity').value);
+    const angle    = parseFloat(document.getElementById('impact_angle').value);
+
+    // Client-side validation
+    let hasError = false;
+    if (!diameter || diameter <= 0) {
+        showFieldError('err-diameter', 'impactor_diameter', 'Diameter must be > 0.');
+        hasError = true;
+    }
+    if (!velocity || velocity <= 0) {
+        showFieldError('err-velocity', 'impact_velocity', 'Velocity must be > 0.');
+        hasError = true;
+    }
+    if (!angle || angle <= 0 || angle > 90) {
+        showFieldError('err-angle', 'impact_angle', 'Angle must be in (0, 90].');
+        hasError = true;
+    }
+    if (hasError) return;
+
+    const body = {
+        impactor_diameter: diameter,
+        impact_velocity:   velocity,
+        impact_angle:      angle,
+    };
+
+    // Optional fields
+    const density  = parseFloat(document.getElementById('impactor_density').value);
+    const tDensity = parseFloat(document.getElementById('target_density').value);
+    const gravity  = parseFloat(document.getElementById('surface_gravity').value);
+    if (density  > 0) body.impactor_density = density;
+    if (tDensity > 0) body.target_density   = tDensity;
+    if (gravity  > 0) body.surface_gravity  = gravity;
+
+    const btn = document.getElementById('btn-run');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Running…';
+
+    try {
+        const result = await apiPost('/api/simulations', body);
+
+        // Fetch profile + elevation field in parallel
+        const [profile, elevation] = await Promise.all([
+            apiGet(`/api/experiments/${result.experiment_id}/profile`),
+            apiGet(`/api/experiments/${result.experiment_id}/elevation`),
+        ]);
+
+        displayResults(result, profile, elevation, body, /* isSaved= */ true);
+        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved.', 'success');
+    } catch (err) {
+        showToast('Simulation failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '▶ Run Simulation';
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Display results & charts
+// ---------------------------------------------------------------------------
+function displayResults(result, profile, elevation, inputParams, isSaved = false) {
+    // Show all result sections
+    document.getElementById('section-results').classList.remove('hidden');
+    document.getElementById('section-terrain').classList.remove('hidden');
+    document.getElementById('section-profile').classList.remove('hidden');
+    document.getElementById('section-params-chart').classList.remove('hidden');
+
+    // ── Saved badge ──────────────────────────────────────────
+    const savedBadge = document.getElementById('saved-badge');
+    if (isSaved) savedBadge.classList.remove('hidden');
+
+    // ── Metric cards ─────────────────────────────────────────
+    document.getElementById('res-crater-diam').textContent  = formatNumber(result.crater_diameter) + ' m';
+    document.getElementById('res-crater-depth').textContent = formatNumber(result.crater_depth) + ' m';
+    document.getElementById('res-rim-height').textContent   = formatNumber(result.rim_height) + ' m';
+    document.getElementById('res-transient').textContent    = formatNumber(result.transient_crater_diameter) + ' m';
+    document.getElementById('res-ejecta').textContent       = formatNumber(result.ejecta_volume) + ' m³';
+    document.getElementById('res-energy').textContent       = formatEnergy(result.energy_joules);
+    document.getElementById('result-model').textContent     = result.model;
+    document.getElementById('res-experiment-id').textContent = 'Experiment #' + result.experiment_id;
+
+    // ── Notes ────────────────────────────────────────────────
+    const notes = document.getElementById('experiment_notes').value.trim();
+    if (notes) {
+        document.getElementById('notes-text').textContent = notes;
+        document.getElementById('notes-display').classList.remove('hidden');
+    }
+
+    // ── Warnings ─────────────────────────────────────────────
+    const warningsList = document.getElementById('warnings-list');
+    warningsList.innerHTML = '';
+    if (result.warnings && result.warnings.length > 0) {
+        warningsList.classList.remove('hidden');
+        result.warnings.forEach(w => {
+            const li = document.createElement('li');
+            li.className = 'warnings-list__item';
+            li.textContent = w.message;
+            warningsList.appendChild(li);
+        });
+    } else {
+        warningsList.classList.add('hidden');
+    }
+
+    // ── Terrain map (heatmap by default) ─────────────────────
+    _elevationData = elevation;
+    _terrainViewMode = 'heatmap';
+    setActiveTerrainBtn('heatmap');
+    renderTerrainHeatmap(elevation);
+
+    // ── Crater Profile ────────────────────────────────────────
+    renderCraterProfile(profile, result);
+
+    // ── Bar chart ─────────────────────────────────────────────
+    renderParamBarChart(inputParams, result);
+
+    // Scroll to results
+    document.getElementById('section-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---------------------------------------------------------------------------
+// Terrain map renderers
+// ---------------------------------------------------------------------------
+function renderTerrainHeatmap(field) {
+    const trace = {
+        type: 'heatmap',
+        x: field.x,
+        y: field.y,
+        z: field.z,
+        colorscale: [
+            [0.00, '#312e81'],
+            [0.18, '#6366f1'],
+            [0.38, '#22d3ee'],
+            [0.60, '#34d399'],
+            [0.80, '#fbbf24'],
+            [1.00, '#f97316'],
+        ],
+        zmin: field.z_min,
+        zmax: field.z_max,
+        colorbar: {
+            title: { text: 'Elevation (m)', side: 'right', font: { color: '#94a3b8', size: 11 } },
+            tickfont: { color: '#94a3b8', size: 10 },
+            len: 0.8,
+        },
+        hoverongaps: false,
+        hovertemplate: 'x: %{x:.1f} m<br>y: %{y:.1f} m<br>z: %{z:.2f} m<extra></extra>',
+    };
+
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater Elevation Field — Top-Down View', font: { color: '#e2e8f0', size: 14 } },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Y (m)' },
+        margin: { t: 50, r: 80, b: 60, l: 70 },
+    };
+
+    Plotly.newPlot('chart-terrain', [trace], layout, PLOTLY_CONFIG);
+}
+
+function renderTerrainSurface(field) {
+    const trace = {
+        type: 'surface',
+        x: field.x,
+        y: field.y,
+        z: field.z,
+        colorscale: [
+            [0.00, '#312e81'],
+            [0.18, '#6366f1'],
+            [0.38, '#22d3ee'],
+            [0.60, '#34d399'],
+            [0.80, '#fbbf24'],
+            [1.00, '#f97316'],
+        ],
+        cmin: field.z_min,
+        cmax: field.z_max,
+        showscale: true,
+        colorbar: {
+            title: { text: 'Elevation (m)', side: 'right', font: { color: '#94a3b8', size: 11 } },
+            tickfont: { color: '#94a3b8', size: 10 },
+            len: 0.7,
+        },
+        lighting: { ambient: 0.6, diffuse: 0.8, specular: 0.3, roughness: 0.5 },
+        contours: {
+            z: { show: true, usecolormap: true, project: { z: false }, color: 'rgba(255,255,255,0.1)', width: 1 },
+        },
+        hovertemplate: 'x: %{x:.1f} m<br>y: %{y:.1f} m<br>z: %{z:.2f} m<extra></extra>',
+    };
+
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater Elevation Field — 3D Surface', font: { color: '#e2e8f0', size: 14 } },
+        scene: {
+            xaxis: { title: 'X (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
+            yaxis: { title: 'Y (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
+            zaxis: { title: 'Elevation (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
+            bgcolor: '#111827',
+            camera: { eye: { x: 1.5, y: 1.5, z: 1.1 } },
+        },
+        margin: { t: 50, r: 60, b: 20, l: 20 },
+    };
+
+    Plotly.newPlot('chart-terrain', [trace], layout, { ...PLOTLY_CONFIG, responsive: true });
+}
+
+function renderTerrainContour(field) {
+    const trace = {
+        type: 'contour',
+        x: field.x,
+        y: field.y,
+        z: field.z,
+        colorscale: [
+            [0.00, '#312e81'],
+            [0.18, '#6366f1'],
+            [0.38, '#22d3ee'],
+            [0.60, '#34d399'],
+            [0.80, '#fbbf24'],
+            [1.00, '#f97316'],
+        ],
+        zmin: field.z_min,
+        zmax: field.z_max,
+        contours: {
+            coloring: 'heatmap',
+            showlabels: true,
+            labelfont: { color: 'rgba(255,255,255,0.55)', size: 9 },
+        },
+        colorbar: {
+            title: { text: 'Elevation (m)', side: 'right', font: { color: '#94a3b8', size: 11 } },
+            tickfont: { color: '#94a3b8', size: 10 },
+            len: 0.8,
+        },
+        hovertemplate: 'x: %{x:.1f} m<br>y: %{y:.1f} m<br>z: %{z:.2f} m<extra></extra>',
+        line: { smoothing: 1.3 },
+    };
+
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater Elevation Contour Map', font: { color: '#e2e8f0', size: 14 } },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Y (m)' },
+        margin: { t: 50, r: 80, b: 60, l: 70 },
+    };
+
+    Plotly.newPlot('chart-terrain', [trace], layout, PLOTLY_CONFIG);
+}
+
+function switchTerrainView(mode) {
+    if (!_elevationData) return;
+    _terrainViewMode = mode;
+    setActiveTerrainBtn(mode);
+    if (mode === 'heatmap')  renderTerrainHeatmap(_elevationData);
+    if (mode === 'surface')  renderTerrainSurface(_elevationData);
+    if (mode === 'contour')  renderTerrainContour(_elevationData);
+}
+
+function setActiveTerrainBtn(mode) {
+    ['heatmap', 'surface', 'contour'].forEach(m => {
+        document.getElementById('btn-' + m).classList.toggle('active', m === mode);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Crater profile chart
+// ---------------------------------------------------------------------------
+function renderCraterProfile(profile, result) {
+    const profileTrace = {
+        x: profile.x,
+        y: profile.y,
+        type: 'scatter',
+        mode: 'lines',
+        fill: 'tozeroy',
+        fillcolor: 'rgba(99, 102, 241, 0.12)',
+        line: { color: '#6366f1', width: 2.5 },
+        name: 'Crater Profile',
+        hovertemplate: 'x: %{x:.1f} m<br>Elevation: %{y:.2f} m<extra></extra>',
+    };
+
+    // Annotate key structural features
+    const craterR = result.crater_diameter / 2;
+    const annotations = [
+        {
+            x: 0, y: -result.crater_depth,
+            text: `Floor −${formatNumber(result.crater_depth)} m`,
+            showarrow: true, arrowhead: 2, ax: 50, ay: -30,
+            font: { color: '#22d3ee', size: 10 },
+            arrowcolor: '#22d3ee',
+        },
+        {
+            x: craterR * 1.1, y: result.rim_height,
+            text: `Rim +${formatNumber(result.rim_height)} m`,
+            showarrow: true, arrowhead: 2, ax: 40, ay: -25,
+            font: { color: '#fbbf24', size: 10 },
+            arrowcolor: '#fbbf24',
+        },
+    ];
+
+    const profileLayout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater Cross-Section', font: { color: '#e2e8f0', size: 14 } },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Distance from Centre (m)', zeroline: true, zerolinewidth: 1 },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Elevation (m)' },
+        showlegend: false,
+        shapes: [
+            // zero-line marker
+            { type: 'line', x0: profile.x[0], x1: profile.x[profile.x.length - 1],
+              y0: 0, y1: 0, line: { color: 'rgba(255,255,255,0.1)', width: 1, dash: 'dot' } },
+        ],
+        annotations,
+    };
+
+    Plotly.newPlot('chart-profile', [profileTrace], profileLayout, PLOTLY_CONFIG);
+}
+
+// ---------------------------------------------------------------------------
+// Parameter / Result bar chart
+// ---------------------------------------------------------------------------
+function renderParamBarChart(inputParams, result) {
+    const paramLabels = ['Impactor ⌀ (m)', 'Velocity (m/s)', 'Angle (°)', 'Crater ⌀ (m)', 'Depth (m)'];
+    const paramValues = [
+        inputParams.impactor_diameter,
+        inputParams.impact_velocity,
+        inputParams.impact_angle || inputParams.impact_angle,
+        result.crater_diameter,
+        result.crater_depth,
+    ];
+    const paramColors = ['#6366f1', '#6366f1', '#6366f1', '#22d3ee', '#22d3ee'];
+
+    const barTrace = {
+        x: paramLabels,
+        y: paramValues,
+        type: 'bar',
+        marker: {
+            color: paramColors,
+            line: { color: paramColors, width: 1 },
+        },
+        text: paramValues.map(v => formatNumber(v)),
+        textposition: 'outside',
+        textfont: { color: '#94a3b8', size: 11 },
+        hovertemplate: '%{x}<br>Value: %{y:.3g}<extra></extra>',
+    };
+
+    const barLayout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Parameters vs Results', font: { color: '#e2e8f0', size: 14 } },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: '' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Value', type: 'log' },
+        showlegend: false,
+        bargap: 0.35,
+    };
+
+    Plotly.newPlot('chart-params', [barTrace], barLayout, PLOTLY_CONFIG);
+}
+
+// ---------------------------------------------------------------------------
+// Form helpers
+// ---------------------------------------------------------------------------
+function showFieldError(errId, inputId, msg) {
+    const errEl   = document.getElementById(errId);
+    const inputEl = document.getElementById(inputId);
+    errEl.textContent = msg;
+    errEl.classList.remove('hidden');
+    inputEl.classList.add('form-input--error');
+}
+
+function clearErrors() {
+    document.querySelectorAll('.form-error').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.form-input--error').forEach(el => el.classList.remove('form-input--error'));
+}
+
+function resetForm() {
+    document.getElementById('simulation-form').reset();
+    document.getElementById('section-results').classList.add('hidden');
+    document.getElementById('section-terrain').classList.add('hidden');
+    document.getElementById('section-profile').classList.add('hidden');
+    document.getElementById('section-params-chart').classList.add('hidden');
+    document.getElementById('notes-display').classList.add('hidden');
+    document.getElementById('saved-badge').classList.add('hidden');
+    document.querySelectorAll('.tag.active').forEach(t => t.classList.remove('active'));
+    _elevationData = null;
+    clearErrors();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Reset URL if viewing existing
+    if (viewId) {
+        window.history.replaceState({}, '', '/experiment');
+    }
+}
+</script>
+</body>
+</html>

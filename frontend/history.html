@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — View and manage your experiment history. Compare past simulation results.">
+    <title>LunaLab — Experiment History</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link" id="nav-dashboard">Dashboard</a></li>
+                <li><a href="/experiment" class="navbar__link" id="nav-experiment">New Experiment</a></li>
+                <li><a href="/history" class="navbar__link navbar__link--active" id="nav-history">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Experiment History</h1>
+            <p class="page-header__subtitle">
+                Browse, view, and compare your past simulation experiments.
+            </p>
+        </div>
+
+        <!-- Actions bar -->
+        <div class="flex items-center justify-between mb-lg" id="actions-bar" style="display:none;">
+            <span id="selected-count" style="color:var(--text-muted);font-size:0.88rem;">0 selected</span>
+            <div class="flex gap-sm">
+                <button class="btn btn--primary" id="btn-compare" disabled onclick="compareSelected()">
+                    Compare Selected
+                </button>
+                <button class="btn btn--danger" id="btn-delete" disabled onclick="deleteSelected()">
+                    Delete Selected
+                </button>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <section class="section">
+            <div class="card" style="padding: var(--space-md) var(--space-xl);">
+
+                <div id="history-loading" class="text-center mt-lg" style="color:var(--text-muted);">
+                    Loading experiments…
+                </div>
+
+                <div id="history-empty" class="empty-state hidden">
+                    <div class="empty-state__icon">🔭</div>
+                    <div class="empty-state__title">No experiments found</div>
+                    <p>Run a simulation to create your first experiment.</p>
+                    <a href="/experiment" class="btn btn--primary mt-lg">New Experiment</a>
+                </div>
+
+                <div id="history-table-wrapper" class="hidden">
+                    <table class="data-table" id="history-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">
+                                    <input type="checkbox" id="select-all" title="Select all">
+                                </th>
+                                <th>ID</th>
+                                <th>Date</th>
+                                <th>Impactor ⌀</th>
+                                <th>Velocity</th>
+                                <th>Angle</th>
+                                <th>Crater ⌀</th>
+                                <th>Depth</th>
+                                <th>Model</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+let allExperiments = [];
+let selectedIds = new Set();
+
+// ---------------------------------------------------------------------------
+// Load experiments
+// ---------------------------------------------------------------------------
+(async function () {
+    const loading = document.getElementById('history-loading');
+    const empty   = document.getElementById('history-empty');
+    const wrapper = document.getElementById('history-table-wrapper');
+    const tbody   = document.getElementById('history-tbody');
+
+    try {
+        const data = await apiGet('/api/experiments');
+        loading.classList.add('hidden');
+
+        allExperiments = data.experiments || [];
+        if (allExperiments.length === 0) {
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('actions-bar').style.display = 'flex';
+
+        allExperiments.forEach(exp => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = exp.id;
+            tr.innerHTML = `
+                <td>
+                    <input type="checkbox" class="exp-checkbox" value="${exp.id}"
+                           onchange="updateSelection()">
+                </td>
+                <td><a href="/experiment?id=${exp.id}" class="data-table__link">#${exp.id}</a></td>
+                <td>${formatDate(exp.created_at)}</td>
+                <td class="data-table__mono">${formatNumber(exp.impactor_diameter)} m</td>
+                <td class="data-table__mono">${formatNumber(exp.impact_velocity)} m/s</td>
+                <td class="data-table__mono">${formatNumber(exp.impact_angle)}°</td>
+                <td class="data-table__mono">${formatNumber(exp.crater_diameter)} m</td>
+                <td class="data-table__mono">${formatNumber(exp.crater_depth)} m</td>
+                <td><span class="badge badge--model">${exp.model_name}</span></td>
+                <td>
+                    <a href="/experiment?id=${exp.id}" class="btn btn--ghost" title="View">📊</a>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        wrapper.classList.remove('hidden');
+    } catch (err) {
+        loading.textContent = 'Failed to load experiments.';
+        console.error(err);
+    }
+})();
+
+// ---------------------------------------------------------------------------
+// Selection management
+// ---------------------------------------------------------------------------
+document.getElementById('select-all').addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll('.exp-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+    updateSelection();
+});
+
+function updateSelection() {
+    selectedIds = new Set();
+    document.querySelectorAll('.exp-checkbox:checked').forEach(cb => {
+        selectedIds.add(parseInt(cb.value, 10));
+    });
+
+    document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
+    document.getElementById('btn-compare').disabled = selectedIds.size < 2;
+    document.getElementById('btn-delete').disabled = selectedIds.size === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Compare
+// ---------------------------------------------------------------------------
+function compareSelected() {
+    if (selectedIds.size < 2) {
+        showToast('Select at least 2 experiments to compare.', 'error');
+        return;
+    }
+    const ids = Array.from(selectedIds).join(',');
+    window.location.href = `/compare?ids=${ids}`;
+}
+
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+async function deleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} experiment(s)? This cannot be undone.`)) return;
+
+    let deleted = 0;
+    for (const id of selectedIds) {
+        try {
+            await apiDelete(`/api/experiments/${id}`);
+            deleted++;
+            const row = document.querySelector(`tr[data-id="${id}"]`);
+            if (row) row.remove();
+        } catch (err) {
+            showToast(`Failed to delete #${id}: ${err.message}`, 'error');
+        }
+    }
+    selectedIds.clear();
+    updateSelection();
+    showToast(`Deleted ${deleted} experiment(s).`, 'success');
+
+    // Check if table is now empty
+    if (document.querySelectorAll('.exp-checkbox').length === 0) {
+        document.getElementById('history-table-wrapper').classList.add('hidden');
+        document.getElementById('history-empty').classList.remove('hidden');
+        document.getElementById('actions-bar').style.display = 'none';
+    }
+}
+</script>
+</body>
+</html>

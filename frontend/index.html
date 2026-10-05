@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Lunar Impact Simulation & Experiment Analysis Platform. Run crater-scaling simulations, visualize results, and compare experiments.">
+    <title>LunaLab — Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link navbar__link--active" id="nav-dashboard">Dashboard</a></li>
+                <li><a href="/experiment" class="navbar__link" id="nav-experiment">New Experiment</a></li>
+                <li><a href="/history" class="navbar__link" id="nav-history">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <main class="container">
+        <section class="hero">
+            <h1 class="hero__title">LunaLab</h1>
+            <p class="hero__tagline">Lunar Impact Simulation &amp; Experiment Analysis</p>
+            <a href="/experiment" class="btn btn--primary btn--lg" id="btn-new-experiment">
+                ✦ New Experiment
+            </a>
+        </section>
+
+        <!-- Disclaimer -->
+        <div class="disclaimer">
+            This prototype uses a simplified crater scaling model for educational and experimental purposes.
+            It is not a full physical simulation of impact processes.
+        </div>
+
+        <!-- Recent Experiments -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title">
+                    <span class="card__title-icon">📋</span>
+                    Recent Experiments
+                </h2>
+
+                <div id="recent-loading" class="text-center mt-lg" style="color:var(--text-muted);">
+                    Loading experiments…
+                </div>
+
+                <div id="recent-empty" class="empty-state hidden">
+                    <div class="empty-state__icon">🔭</div>
+                    <div class="empty-state__title">No experiments yet</div>
+                    <p>Run your first simulation to see results here.</p>
+                    <a href="/experiment" class="btn btn--primary mt-lg">Run Simulation</a>
+                </div>
+
+                <div id="recent-table-wrapper" class="hidden">
+                    <table class="data-table" id="recent-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Date</th>
+                                <th>Impactor ⌀</th>
+                                <th>Velocity</th>
+                                <th>Angle</th>
+                                <th>Crater ⌀</th>
+                                <th>Depth</th>
+                                <th>Model</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-tbody"></tbody>
+                    </table>
+                    <div class="mt-lg text-center">
+                        <a href="/history" class="btn btn--secondary" id="btn-view-all">View All Experiments →</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model · Built for Software Engineering
+        </div>
+    </footer>
+
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+(async function () {
+    const loading = document.getElementById('recent-loading');
+    const empty   = document.getElementById('recent-empty');
+    const wrapper = document.getElementById('recent-table-wrapper');
+    const tbody   = document.getElementById('recent-tbody');
+
+    try {
+        const data = await apiGet('/api/experiments');
+        loading.classList.add('hidden');
+
+        const experiments = data.experiments || [];
+        if (experiments.length === 0) {
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        // Show at most 10 recent
+        const recent = experiments.slice(0, 10);
+        recent.forEach(exp => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><a href="/experiment?id=${exp.id}" class="data-table__link">#${exp.id}</a></td>
+                <td>${formatDate(exp.created_at)}</td>
+                <td class="data-table__mono">${formatNumber(exp.impactor_diameter)} m</td>
+                <td class="data-table__mono">${formatNumber(exp.impact_velocity)} m/s</td>
+                <td class="data-table__mono">${formatNumber(exp.impact_angle)}°</td>
+                <td class="data-table__mono">${formatNumber(exp.crater_diameter)} m</td>
+                <td class="data-table__mono">${formatNumber(exp.crater_depth)} m</td>
+                <td><span class="badge badge--model">${exp.model_name}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        wrapper.classList.remove('hidden');
+    } catch (err) {
+        loading.textContent = 'Failed to load experiments.';
+        console.error(err);
+    }
+})();
+</script>
+</body>
+</html>

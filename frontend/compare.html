@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Compare multiple crater simulation experiments side by side.">
+    <title>LunaLab — Compare Experiments</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link" id="nav-dashboard">Dashboard</a></li>
+                <li><a href="/experiment" class="navbar__link" id="nav-experiment">New Experiment</a></li>
+                <li><a href="/history" class="navbar__link" id="nav-history">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Experiment Comparison</h1>
+            <p class="page-header__subtitle" id="compare-subtitle">
+                Comparing selected experiments side by side.
+            </p>
+        </div>
+
+        <div id="compare-loading" class="text-center mt-lg" style="color:var(--text-muted);">
+            Loading comparison data…
+        </div>
+
+        <div id="compare-error" class="hidden text-center mt-lg" style="color:var(--accent-rose);">
+            Failed to load comparison data.
+        </div>
+
+        <!-- Comparison content (hidden until loaded) -->
+        <div id="compare-content" class="hidden">
+
+            <!-- Summary Table -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title">
+                        <span class="card__title-icon">📋</span>
+                        Experiment Summary
+                    </h2>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table" id="compare-table">
+                            <thead id="compare-thead"></thead>
+                            <tbody id="compare-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Overlaid Crater Profiles -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title">
+                        <span class="card__title-icon">🌋</span>
+                        Crater Profiles Overlay
+                    </h2>
+                    <div class="chart-container" id="chart-profiles"></div>
+                </div>
+            </section>
+
+            <!-- Grouped Bar Chart -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title">
+                        <span class="card__title-icon">📊</span>
+                        Parameter Comparison
+                    </h2>
+                    <div class="chart-container" id="chart-bars"></div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// Parse IDs from query string
+// ---------------------------------------------------------------------------
+const urlParams = new URLSearchParams(window.location.search);
+const idsParam  = urlParams.get('ids') || '';
+const ids = idsParam.split(',').map(Number).filter(n => n > 0);
+
+if (ids.length < 2) {
+    document.getElementById('compare-loading').classList.add('hidden');
+    document.getElementById('compare-error').classList.remove('hidden');
+    document.getElementById('compare-error').textContent =
+        'Please select at least 2 experiments to compare. Go to History to select.';
+} else {
+    loadComparison(ids);
+}
+
+// ---------------------------------------------------------------------------
+// Load & render comparison
+// ---------------------------------------------------------------------------
+async function loadComparison(experimentIds) {
+    const loading = document.getElementById('compare-loading');
+    const error   = document.getElementById('compare-error');
+    const content = document.getElementById('compare-content');
+
+    try {
+        const data = await apiPost('/api/experiments/compare', { experiment_ids: experimentIds });
+        loading.classList.add('hidden');
+
+        const experiments = data.experiments || [];
+        if (experiments.length < 2) {
+            error.classList.remove('hidden');
+            error.textContent = 'Not enough experiments found.';
+            return;
+        }
+
+        document.getElementById('compare-subtitle').textContent =
+            `Comparing ${experiments.length} experiments: ${experiments.map(e => '#' + e.id).join(', ')}`;
+
+        renderSummaryTable(experiments);
+        renderProfilesOverlay(experiments);
+        renderGroupedBarChart(experiments);
+
+        content.classList.remove('hidden');
+    } catch (err) {
+        loading.classList.add('hidden');
+        error.classList.remove('hidden');
+        error.textContent = 'Failed to load: ' + err.message;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Summary table
+// ---------------------------------------------------------------------------
+function renderSummaryTable(experiments) {
+    const thead = document.getElementById('compare-thead');
+    const tbody = document.getElementById('compare-tbody');
+
+    // Header row
+    let headerHtml = '<tr><th>Parameter</th>';
+    experiments.forEach((exp, i) => {
+        const color = COMPARISON_COLORS[i % COMPARISON_COLORS.length];
+        headerHtml += `<th><span class="color-dot" style="background:${color};"></span>Exp #${exp.id}</th>`;
+    });
+    headerHtml += '</tr>';
+    thead.innerHTML = headerHtml;
+
+    // Data rows
+    const rows = [
+        { label: 'Impactor Diameter', key: 'impactor_diameter', unit: 'm' },
+        { label: 'Impact Velocity', key: 'impact_velocity', unit: 'm/s' },
+        { label: 'Impact Angle', key: 'impact_angle', unit: '°' },
+        { label: 'Impactor Density', key: 'impactor_density', unit: 'kg/m³' },
+        { label: 'Target Density', key: 'target_density', unit: 'kg/m³' },
+        { label: 'Surface Gravity', key: 'surface_gravity', unit: 'm/s²' },
+        { label: 'Crater Diameter', key: 'crater_diameter', unit: 'm' },
+        { label: 'Crater Depth', key: 'crater_depth', unit: 'm' },
+        { label: 'Rim Height', key: 'rim_height', unit: 'm' },
+        { label: 'Transient Crater ⌀', key: 'transient_crater_diameter', unit: 'm' },
+        { label: 'Ejecta Volume', key: 'ejecta_volume', unit: 'm³' },
+        { label: 'Impact Energy', key: 'energy_joules', unit: 'J', format: 'energy' },
+        { label: 'Model', key: 'model_name', unit: '' },
+    ];
+
+    let bodyHtml = '';
+    rows.forEach(row => {
+        bodyHtml += '<tr>';
+        bodyHtml += `<td style="font-weight:500;color:var(--text-secondary);">${row.label}</td>`;
+        experiments.forEach(exp => {
+            const val = exp[row.key];
+            let display;
+            if (row.format === 'energy') {
+                display = formatEnergy(val);
+            } else if (typeof val === 'number') {
+                display = formatNumber(val) + (row.unit ? ' ' + row.unit : '');
+            } else {
+                display = val;
+            }
+            bodyHtml += `<td class="data-table__mono">${display}</td>`;
+        });
+        bodyHtml += '</tr>';
+    });
+    tbody.innerHTML = bodyHtml;
+}
+
+// ---------------------------------------------------------------------------
+// Crater profiles overlay
+// ---------------------------------------------------------------------------
+function renderProfilesOverlay(experiments) {
+    const traces = experiments.map((exp, i) => ({
+        x: exp.profile.x,
+        y: exp.profile.y,
+        type: 'scatter',
+        mode: 'lines',
+        name: `Exp #${exp.id} (⌀${formatNumber(exp.crater_diameter)}m)`,
+        line: {
+            color: COMPARISON_COLORS[i % COMPARISON_COLORS.length],
+            width: 2.5,
+        },
+    }));
+
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater Cross-Section Overlay', font: { color: '#e2e8f0', size: 14 } },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Distance (m)' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Elevation (m)' },
+        legend: { font: { color: '#94a3b8' }, bgcolor: 'transparent' },
+    };
+
+    Plotly.newPlot('chart-profiles', traces, layout, PLOTLY_CONFIG);
+}
+
+// ---------------------------------------------------------------------------
+// Grouped bar chart
+// ---------------------------------------------------------------------------
+function renderGroupedBarChart(experiments) {
+    const metrics = [
+        { label: 'Impactor ⌀', key: 'impactor_diameter' },
+        { label: 'Velocity', key: 'impact_velocity' },
+        { label: 'Crater ⌀', key: 'crater_diameter' },
+        { label: 'Depth', key: 'crater_depth' },
+    ];
+
+    const traces = experiments.map((exp, i) => ({
+        x: metrics.map(m => m.label),
+        y: metrics.map(m => exp[m.key]),
+        type: 'bar',
+        name: `Exp #${exp.id}`,
+        marker: { color: COMPARISON_COLORS[i % COMPARISON_COLORS.length] },
+        text: metrics.map(m => formatNumber(exp[m.key])),
+        textposition: 'outside',
+        textfont: { color: '#94a3b8', size: 10 },
+    }));
+
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Key Metrics Comparison', font: { color: '#e2e8f0', size: 14 } },
+        barmode: 'group',
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Value', type: 'log' },
+        legend: { font: { color: '#94a3b8' }, bgcolor: 'transparent' },
+        bargap: 0.2,
+        bargroupgap: 0.1,
+    };
+
+    Plotly.newPlot('chart-bars', traces, layout, PLOTLY_CONFIG);
+}
+</script>
+</body>
+</html>
