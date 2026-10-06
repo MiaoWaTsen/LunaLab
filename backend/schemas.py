@@ -96,11 +96,39 @@ class ElevationField(BaseModel):
     """
     2-D synthetic elevation grid for terrain-map visualization.
 
-    x / y are 1-D coordinate arrays; z is a 2-D matrix (rows = y, cols = x).
-    z_min / z_max provide the colour-scale range.
+    Response design rationale
+    -------------------------
+    The grid is 1024 × 512 = 524,288 cells.  Returning those as a flat
+    list of {x, y, z} objects would create ~524,288 JSON objects with
+    redundant coordinate repetition — roughly 20–30 MB of JSON per
+    request, which is unacceptable for a prototype.
+
+    Instead we use the Plotly-native row-major format:
+        x     — 1-D coordinate array (length = width)
+        y     — 1-D coordinate array (length = height)
+        z     — 2-D array of shape (height, width), matching Plotly's
+                heatmap / surface expectation
+
+    This reduces the JSON payload to approximately 2–4 MB, which is
+    acceptable for a local prototype over loopback.  For production the
+    data would be compressed (gzip) or served as a binary format (e.g.
+    MessagePack, Arrow).
+
+    Fields
+    ------
+    x, y    — Coordinate axes.  z[row][col] is the elevation at
+              (x[col], y[row]).
+    z       — Row-major elevation matrix: shape (height, width).
+    z_min, z_max — Scalar range for Plotly colour-scale.
+    width, height — Grid dimensions for client-side validation.
+    gen_time_ms   — Server-side terrain generation time in milliseconds.
+                    Useful for performance monitoring.
     """
-    x: list[float]
-    y: list[float]
-    z: list[list[float]]
-    z_min: float
-    z_max: float
+    x:            list[float]
+    y:            list[float]
+    z:            list[list[float]]
+    z_min:        float
+    z_max:        float
+    width:        int
+    height:       int
+    gen_time_ms:  float

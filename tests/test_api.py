@@ -223,3 +223,76 @@ class TestDeleteExperiment:
     def test_delete_nonexistent_404(self, client):
         res = client.delete("/api/experiments/999999")
         assert res.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/experiments/{id}/elevation
+# ---------------------------------------------------------------------------
+
+class TestGetElevation:
+    def test_elevation_returns_200(self, client):
+        create = client.post("/api/simulations", json={
+            "impactor_diameter": 10,
+            "impact_velocity": 20000,
+            "impact_angle": 45,
+        })
+        eid = create.json()["experiment_id"]
+        res = client.get(f"/api/experiments/{eid}/elevation")
+        assert res.status_code == 200
+
+    def test_elevation_response_has_required_keys(self, client):
+        create = client.post("/api/simulations", json={
+            "impactor_diameter": 10,
+            "impact_velocity": 20000,
+            "impact_angle": 45,
+        })
+        eid = create.json()["experiment_id"]
+        data = client.get(f"/api/experiments/{eid}/elevation").json()
+
+        for key in ("x", "y", "z", "z_min", "z_max", "width", "height", "gen_time_ms"):
+            assert key in data, f"Missing key: {key}"
+
+    def test_elevation_grid_shape_is_1024x512(self, client):
+        create = client.post("/api/simulations", json={
+            "impactor_diameter": 10,
+            "impact_velocity": 20000,
+            "impact_angle": 45,
+        })
+        eid = create.json()["experiment_id"]
+        data = client.get(f"/api/experiments/{eid}/elevation").json()
+
+        assert data["width"]  == 1024
+        assert data["height"] == 512
+        assert len(data["x"]) == 1024
+        assert len(data["y"]) == 512
+        assert len(data["z"]) == 512
+        # Spot-check a few rows (checking all 512 rows would be slow)
+        for row_idx in (0, 255, 511):
+            assert len(data["z"][row_idx]) == 1024, \
+                f"Row {row_idx} has wrong length: {len(data['z'][row_idx])}"
+
+    def test_elevation_z_min_is_negative(self, client):
+        """Crater floor must be below the surrounding terrain."""
+        create = client.post("/api/simulations", json={
+            "impactor_diameter": 10,
+            "impact_velocity": 20000,
+            "impact_angle": 45,
+        })
+        eid = create.json()["experiment_id"]
+        data = client.get(f"/api/experiments/{eid}/elevation").json()
+        assert data["z_min"] < 0
+
+    def test_elevation_z_max_is_positive(self, client):
+        """Rim must be above the surrounding terrain."""
+        create = client.post("/api/simulations", json={
+            "impactor_diameter": 10,
+            "impact_velocity": 20000,
+            "impact_angle": 45,
+        })
+        eid = create.json()["experiment_id"]
+        data = client.get(f"/api/experiments/{eid}/elevation").json()
+        assert data["z_max"] > 0
+
+    def test_elevation_nonexistent_experiment_404(self, client):
+        res = client.get("/api/experiments/999999/elevation")
+        assert res.status_code == 404

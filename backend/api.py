@@ -31,9 +31,9 @@ from simulation.crater_model import (
     ImpactParameters,
     run_simulation,
     generate_crater_profile,
-    generate_elevation_field,
     ValidationError,
 )
+from terrain.crater_terrain import generate_elevation_field
 from database.models import (
     init_db,
     save_experiment,
@@ -171,8 +171,17 @@ def get_experiment_elevation(experiment_id: int):
     """
     Generate a synthetic 2-D elevation field (terrain map) for an experiment.
 
-    Returns a grid_size × grid_size matrix of elevation values plus 1-D x/y
-    coordinate arrays — ready for a Plotly heatmap or surface plot.
+    Orchestration:
+        1. Fetch stored crater geometry from the database.
+        2. Delegate to terrain.crater_terrain.generate_elevation_field().
+        3. Return the field as a JSON response.
+
+    The terrain generation is intentionally separated from the crater
+    scaling model (simulation/crater_model.py).  This route does NOT
+    perform any scientific calculations — it delegates entirely.
+
+    Returns a 1024 × 512 grid (width × height) plus 1-D x/y coordinate
+    arrays and scalar z_min/z_max for Plotly colour-scale normalisation.
     """
     exp = get_experiment(experiment_id)
     if exp is None:
