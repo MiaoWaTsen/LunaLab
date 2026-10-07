@@ -277,7 +277,7 @@ app.mount("/static", StaticFiles(directory=_FRONTEND_DIR), name="static")
 
 @app.get("/")
 def serve_index():
-    return FileResponse(os.path.join(_FRONTEND_DIR, "index.html"))
+    return FileResponse(os.path.join(_FRONTEND_DIR, "moon.html"))
 
 
 @app.get("/experiment")
