@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LunaLab — Select Impact Location</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
+      }
+    }
+    </script>
+    <style>
+        .moon-container {
+            width: 100%;
+            height: 500px;
+            background: #000;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            position: relative;
+            cursor: crosshair;
+        }
+        .moon-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .coordinates-panel {
+            margin-top: var(--space-md);
+            padding: var(--space-md);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .coordinates-data {
+            display: flex;
+            gap: var(--space-lg);
+        }
+        .coord-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .coord-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+        .coord-value {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">Dashboard</a></li>
+                <li><a href="/experiment" class="navbar__link">New Experiment</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h1 class="page-header__title">Select Impact Location</h1>
+            <p class="page-header__subtitle">
+                Drag to rotate the Moon. Click to select the target location for your simulation.
+            </p>
+        </div>
+
+        <div class="card">
+            <div class="flex items-center justify-between" style="margin-bottom:var(--space-sm);">
+                <h2 class="card__title" style="margin:0;">
+                    <span class="card__title-icon">🌍</span>
+                    Interactive 3D Moon
+                </h2>
+                <span class="badge badge--model">Surface data: Synthetic approximation</span>
+            </div>
+
+            <div class="moon-container" id="moon-container">
+                <div id="loading-overlay" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); color:white; z-index:10; font-family:var(--font-mono);">
+                    Loading synthetic terrain...
+                </div>
+            </div>
+
+            <div class="coordinates-panel">
+                <div class="coordinates-data">
+                    <div class="coord-group">
+                        <span class="coord-label">Latitude</span>
+                        <span class="coord-value" id="val-lat">—</span>
+                    </div>
+                    <div class="coord-group">
+                        <span class="coord-label">Longitude</span>
+                        <span class="coord-value" id="val-lon">—</span>
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn--primary" id="btn-confirm" disabled>
+                        Confirm Location →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.1.0 — Prototype
+        </div>
+    </footer>
+</div>
+<script type="module" src="/static/moon.js"></script>
+</body>
+</html>

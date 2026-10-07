@@ -185,6 +185,36 @@
                     </div>
 
                     <div class="form-group">
+                        <label class="form-label" for="impact_azimuth">
+                            Impact Azimuth <span class="form-label__unit">(° clockwise from North)</span>
+                        </label>
+                        <input type="number" id="impact_azimuth" class="form-input"
+                               placeholder="e.g. 90" step="any" value="0">
+                        <span class="form-error hidden" id="err-azimuth"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="latitude">
+                            Latitude <span class="form-label__unit">(° N/S)</span>
+                        </label>
+                        <input type="number" id="latitude" class="form-input"
+                               placeholder="Optional" step="any" min="-90" max="90">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="longitude">
+                            Longitude <span class="form-label__unit">(° E/W)</span>
+                        </label>
+                        <div style="display:flex; gap:0.5rem;">
+                            <input type="number" id="longitude" class="form-input"
+                                   placeholder="Optional" step="any" min="-180" max="180">
+                            <button type="button" class="btn btn--secondary" onclick="window.location.href='/moon'" style="white-space:nowrap;">
+                                🌍 Select...
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
                         <label class="form-label" for="impactor_density">
                             Impactor Density <span class="form-label__unit">(kg/m³, default 3000)</span>
                         </label>
@@ -401,13 +431,18 @@ document.getElementById('quick-tags').addEventListener('click', (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Check if we're viewing an existing experiment (via ?id=...)
+// Check if we're viewing an existing experiment (via ?id=...) or setting lat/lon (via ?lat=...)
 // ---------------------------------------------------------------------------
 const urlParams = new URLSearchParams(window.location.search);
 const viewId = urlParams.get('id');
+const qLat = urlParams.get('lat');
+const qLon = urlParams.get('lon');
 
 if (viewId) {
     loadExistingExperiment(parseInt(viewId, 10));
+} else if (qLat !== null && qLon !== null) {
+    document.getElementById('latitude').value = parseFloat(qLat);
+    document.getElementById('longitude').value = parseFloat(qLon);
 }
 
 async function loadExistingExperiment(id) {
@@ -429,6 +464,9 @@ async function loadExistingExperiment(id) {
         document.getElementById('impactor_density').value  = exp.impactor_density;
         document.getElementById('target_density').value    = exp.target_density;
         document.getElementById('surface_gravity').value   = exp.surface_gravity;
+        document.getElementById('impact_azimuth').value    = exp.impact_azimuth;
+        if (exp.latitude !== null) document.getElementById('latitude').value = exp.latitude;
+        if (exp.longitude !== null) document.getElementById('longitude').value = exp.longitude;
 
         displayResults({
             experiment_id: exp.id,
@@ -483,9 +521,16 @@ document.getElementById('simulation-form').addEventListener('submit', async (e) 
     const density  = parseFloat(document.getElementById('impactor_density').value);
     const tDensity = parseFloat(document.getElementById('target_density').value);
     const gravity  = parseFloat(document.getElementById('surface_gravity').value);
+    const azimuth  = parseFloat(document.getElementById('impact_azimuth').value);
+    const latStr   = document.getElementById('latitude').value;
+    const lonStr   = document.getElementById('longitude').value;
+    
     if (density  > 0) body.impactor_density = density;
     if (tDensity > 0) body.target_density   = tDensity;
     if (gravity  > 0) body.surface_gravity  = gravity;
+    if (!isNaN(azimuth)) body.impact_azimuth = azimuth;
+    if (latStr !== '') body.latitude = parseFloat(latStr);
+    if (lonStr !== '') body.longitude = parseFloat(lonStr);
 
     const btn = document.getElementById('btn-run');
     btn.disabled = true;

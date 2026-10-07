@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS experiments (
     transient_crater_diameter REAL NOT NULL,
     energy_joules       REAL NOT NULL,
     model_name          TEXT NOT NULL,
-    warnings_json       TEXT NOT NULL DEFAULT '[]'
+    warnings_json       TEXT NOT NULL DEFAULT '[]',
+    impact_azimuth      REAL DEFAULT 0.0,
+    latitude            REAL,
+    longitude           REAL,
+    surface_elevation   REAL
 );
 """
 
@@ -63,9 +67,23 @@ def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: Optional[str] = None) -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist, and apply migrations."""
     conn = get_connection(db_path)
     conn.execute(_CREATE_TABLE_SQL)
+    
+    # Migrations: Add new columns if missing
+    cursor = conn.execute("PRAGMA table_info(experiments);")
+    columns = [row["name"] for row in cursor.fetchall()]
+    
+    if "impact_azimuth" not in columns:
+        conn.execute("ALTER TABLE experiments ADD COLUMN impact_azimuth REAL DEFAULT 0.0;")
+    if "latitude" not in columns:
+        conn.execute("ALTER TABLE experiments ADD COLUMN latitude REAL;")
+    if "longitude" not in columns:
+        conn.execute("ALTER TABLE experiments ADD COLUMN longitude REAL;")
+    if "surface_elevation" not in columns:
+        conn.execute("ALTER TABLE experiments ADD COLUMN surface_elevation REAL;")
+        
     conn.commit()
     conn.close()
 
@@ -99,8 +117,9 @@ def save_experiment(data: dict, db_path: Optional[str] = None) -> int:
             impactor_density, target_density, surface_gravity,
             crater_diameter, crater_depth, rim_height,
             ejecta_volume, transient_crater_diameter,
-            energy_joules, model_name, warnings_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            energy_joules, model_name, warnings_json,
+            impact_azimuth, latitude, longitude, surface_elevation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             created_at,
@@ -118,6 +137,10 @@ def save_experiment(data: dict, db_path: Optional[str] = None) -> int:
             data["energy_joules"],
             data["model_name"],
             data.get("warnings_json", "[]"),
+            data.get("impact_azimuth", 0.0),
+            data.get("latitude"),
+            data.get("longitude"),
+            data.get("surface_elevation"),
         ),
     )
     conn.commit()

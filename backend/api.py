@@ -14,7 +14,7 @@ It does NOT contain any simulation math or direct SQL.
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +33,7 @@ from simulation.crater_model import (
     generate_crater_profile,
     ValidationError,
 )
+from terrain.lunar_surface import get_surface_provider
 from terrain.crater_terrain import generate_elevation_field
 from database.models import (
     init_db,
@@ -97,6 +98,15 @@ def create_simulation(req: SimulationRequest):
         surface_gravity=req.surface_gravity or 1.62,
     )
 
+    # Fetch elevation if location is provided
+    elevation = None
+    if req.latitude is not None and req.longitude is not None:
+        provider = get_surface_provider()
+        try:
+            elevation = provider.get_elevation(req.latitude, req.longitude)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
     # Run simulation (may raise ValidationError)
     try:
         result = run_simulation(params)
@@ -119,8 +129,20 @@ def create_simulation(req: SimulationRequest):
         "energy_joules": result.energy_joules,
         "model_name": result.model_name,
         "warnings_json": json.dumps(result.warnings),
+        "impact_azimuth": req.impact_azimuth,
+        "latitude": req.latitude,
+        "longitude": req.longitude,
+        "surface_elevation": elevation,
     }
     experiment_id = save_experiment(experiment_data)
+
+    impact_loc = None
+    if req.latitude is not None and req.longitude is not None:
+        impact_loc = {
+            "latitude": req.latitude,
+            "longitude": req.longitude,
+            "elevation": elevation
+        }
 
     return SimulationResponse(
         experiment_id=experiment_id,
@@ -132,6 +154,8 @@ def create_simulation(req: SimulationRequest):
         energy_joules=result.energy_joules,
         model=result.model_name,
         warnings=[{"field": w["field"], "message": w["message"]} for w in result.warnings],
+        impact_azimuth=req.impact_azimuth,
+        impact_location=impact_loc,
     )
 
 
@@ -227,6 +251,15 @@ def remove_experiment(experiment_id: int):
     return {"detail": "Experiment deleted."}
 
 
+@app.get("/api/moon/terrain-texture")
+def get_moon_terrain_texture():
+    """Return an 8-bit raw displacement map for 3D sphere visualization."""
+    provider = get_surface_provider()
+    # Fixed resolution 1024x512 for Three.js
+    tex = provider.get_terrain_texture(1024, 512)
+    return Response(content=tex.tobytes(), media_type="application/octet-stream")
+
+
 # ---------------------------------------------------------------------------
 # Serve frontend static files
 # ---------------------------------------------------------------------------
@@ -260,3 +293,8 @@ def serve_history():
 @app.get("/compare")
 def serve_compare():
     return FileResponse(os.path.join(_FRONTEND_DIR, "compare.html"))
+
+
+@app.get("/moon")
+def serve_moon():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "moon.html"))

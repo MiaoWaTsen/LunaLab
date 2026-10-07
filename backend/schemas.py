@@ -33,6 +33,15 @@ class SimulationRequest(BaseModel):
     surface_gravity: Optional[float] = Field(
         None, gt=0, description="Surface gravity in m/s² (default: 1.62 — Moon)"
     )
+    impact_azimuth: Optional[float] = Field(
+        0.0, description="Impact azimuth in degrees (0=North, clockwise)"
+    )
+    latitude: Optional[float] = Field(
+        None, ge=-90, le=90, description="Latitude of impact"
+    )
+    longitude: Optional[float] = Field(
+        None, ge=-180, le=180, description="Longitude of impact"
+    )
 
 
 class CompareRequest(BaseModel):
@@ -51,6 +60,12 @@ class WarningItem(BaseModel):
     message: str
 
 
+class ImpactLocation(BaseModel):
+    latitude: float
+    longitude: float
+    elevation: Optional[float] = None
+
+
 class SimulationResponse(BaseModel):
     """Response for POST /api/simulations."""
     experiment_id: int
@@ -62,6 +77,8 @@ class SimulationResponse(BaseModel):
     energy_joules: float
     model: str
     warnings: list[WarningItem] = []
+    impact_azimuth: float = 0.0
+    impact_location: Optional[ImpactLocation] = None
 
 
 class ExperimentDetail(BaseModel):
@@ -84,6 +101,10 @@ class ExperimentDetail(BaseModel):
     energy_joules: float
     model_name: str
     warnings_json: str
+    impact_azimuth: float
+    latitude: Optional[float]
+    longitude: Optional[float]
+    surface_elevation: Optional[float]
 
 
 class CraterProfile(BaseModel):
