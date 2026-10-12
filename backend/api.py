@@ -35,6 +35,7 @@ from simulation.crater_model import (
 )
 from terrain.lunar_surface import get_surface_provider
 from terrain.crater_terrain import generate_elevation_field
+from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
     init_db,
     save_experiment,
@@ -197,7 +198,8 @@ def get_experiment_elevation(experiment_id: int):
 
     Orchestration:
         1. Fetch stored crater geometry from the database.
-        2. Delegate to terrain.crater_terrain.generate_elevation_field().
+        2. If impact_angle < 89.5°, delegate to the asymmetric generator.
+           Otherwise, use the symmetric generator.
         3. Return the field as a JSON response.
 
     The terrain generation is intentionally separated from the crater
@@ -211,11 +213,23 @@ def get_experiment_elevation(experiment_id: int):
     if exp is None:
         raise HTTPException(status_code=404, detail="Experiment not found.")
 
-    field = generate_elevation_field(
-        crater_diameter=exp["crater_diameter"],
-        crater_depth=exp["crater_depth"],
-        rim_height=exp["rim_height"],
-    )
+    impact_angle = exp.get("impact_angle", 90.0)
+    impact_azimuth = exp.get("impact_azimuth", 0.0) or 0.0
+
+    if impact_angle < 89.5:
+        field = generate_asymmetric_elevation_field(
+            crater_diameter=exp["crater_diameter"],
+            crater_depth=exp["crater_depth"],
+            rim_height=exp["rim_height"],
+            impact_angle=impact_angle,
+            impact_azimuth=impact_azimuth,
+        )
+    else:
+        field = generate_elevation_field(
+            crater_diameter=exp["crater_diameter"],
+            crater_depth=exp["crater_depth"],
+            rim_height=exp["rim_height"],
+        )
     return field
 
 

@@ -153,3 +153,6 @@ class ElevationField(BaseModel):
     width:        int
     height:       int
     gen_time_ms:  float
+    is_asymmetric:  Optional[bool] = None
+    impact_angle:   Optional[float] = None
+    impact_azimuth: Optional[float] = None

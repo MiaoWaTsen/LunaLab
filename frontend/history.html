@@ -34,16 +34,27 @@
             </p>
         </div>
 
-        <!-- Actions bar -->
-        <div class="flex items-center justify-between mb-lg" id="actions-bar" style="display:none;">
-            <span id="selected-count" style="color:var(--text-muted);font-size:0.88rem;">0 selected</span>
-            <div class="flex gap-sm">
-                <button class="btn btn--primary" id="btn-compare" disabled onclick="compareSelected()">
-                    Compare Selected
-                </button>
-                <button class="btn btn--danger" id="btn-delete" disabled onclick="deleteSelected()">
-                    Delete Selected
-                </button>
+        <!-- Comparison Instruction & Actions bar -->
+        <div class="card" id="actions-bar" style="display:none; padding: var(--space-md); margin-bottom: var(--space-lg); background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9)); border-color: rgba(99, 102, 241, 0.4);">
+            <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: var(--space-md);">
+                <div class="flex items-center gap-md">
+                    <span style="font-size: 1.25rem;">⚖️</span>
+                    <div>
+                        <div style="font-weight: 600; color: #e2e8f0; font-size: 0.95rem;">Experiment Comparison Tool</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);" id="comparison-hint">
+                            Select 2 or more checkboxes in the table below to compare parameters & cross-section profiles side-by-side.
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-sm">
+                    <span id="selected-count" class="badge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8;">0 selected</span>
+                    <button class="btn btn--primary" id="btn-compare" disabled onclick="compareSelected()" style="box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);">
+                        📊 Compare Selected
+                    </button>
+                    <button class="btn btn--danger" id="btn-delete" disabled onclick="deleteSelected()">
+                        🗑️ Delete Selected
+                    </button>
+                </div>
             </div>
         </div>
 

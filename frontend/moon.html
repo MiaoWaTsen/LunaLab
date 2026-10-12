@@ -86,15 +86,34 @@
         <div class="card">
             <div class="flex items-center justify-between" style="margin-bottom:var(--space-sm);">
                 <h2 class="card__title" style="margin:0;">
-                    <span class="card__title-icon">🌍</span>
+                    <span class="card__title-icon">🌕</span>
                     Interactive 3D Moon
                 </h2>
-                <span class="badge badge--model">Surface data: Synthetic approximation</span>
+                <span class="badge badge--model" style="background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.4); color: #22d3ee;">
+                    Texture: NASA LRO Lunar Orbiter (Real Imagery)
+                </span>
+            </div>
+
+            <!-- Quick Landmarks for Educational Interactivity -->
+            <div style="margin-bottom: var(--space-sm); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">📍 Quick Landmarks:</span>
+                <button type="button" class="btn btn--secondary btn--sm landmark-btn" data-lat="-43.3" data-lon="-11.2" style="font-size: 0.75rem; padding: 4px 10px;">
+                    Tycho Crater (-43.3°, -11.2°)
+                </button>
+                <button type="button" class="btn btn--secondary btn--sm landmark-btn" data-lat="9.7" data-lon="-20.1" style="font-size: 0.75rem; padding: 4px 10px;">
+                    Copernicus (9.7°, -20.1°)
+                </button>
+                <button type="button" class="btn btn--secondary btn--sm landmark-btn" data-lat="0.7" data-lon="23.5" style="font-size: 0.75rem; padding: 4px 10px;">
+                    Apollo 11 Mare Tranquillitatis (0.7°, 23.5°)
+                </button>
+                <button type="button" class="btn btn--secondary btn--sm landmark-btn" data-lat="-53.0" data-lon="-169.0" style="font-size: 0.75rem; padding: 4px 10px;">
+                    South Pole-Aitken (-53.0°, -169.0°)
+                </button>
             </div>
 
             <div class="moon-container" id="moon-container">
-                <div id="loading-overlay" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); color:white; z-index:10; font-family:var(--font-mono);">
-                    Loading synthetic terrain...
+                <div id="loading-overlay" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); color:white; z-index:10; font-family:var(--font-mono);">
+                    Loading NASA LRO surface texture...
                 </div>
             </div>
 
@@ -107,6 +126,10 @@
                     <div class="coord-group">
                         <span class="coord-label">Longitude</span>
                         <span class="coord-value" id="val-lon">—</span>
+                    </div>
+                    <div class="coord-group" id="coord-landmark" style="display:none;">
+                        <span class="coord-label">Landmark</span>
+                        <span class="coord-value" id="val-landmark" style="color: #38bdf8; font-size: 0.95rem;">—</span>
                     </div>
                 </div>
                 <div>

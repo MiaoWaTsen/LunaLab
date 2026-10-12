@@ -139,14 +139,15 @@ def generate_asymmetric_elevation_field(
     obliquity = 1.0 - math.sin(angle_rad)
 
     # Ellipticity: ratio of minor/major axis
-    # At 90°: 1.0 (circle).  At 45°: ~0.85.  At 15°: ~0.6
-    ellipticity = math.sin(angle_rad) ** 0.5
-    ellipticity = max(ellipticity, 0.4)  # clamp to prevent degenerate shapes
+    # At 90°: 1.0 (circle).  At 45°: ~0.70.  At 15°: ~0.45
+    # More aggressive than before to produce clearly visible elongation
+    ellipticity = math.sin(angle_rad) ** 0.8
+    ellipticity = max(ellipticity, 0.35)  # clamp to prevent degenerate shapes
 
-    # Directional strength factors
-    depth_asym_strength = 0.3 * obliquity     # depth shift downrange
-    rim_asym_strength = 0.4 * obliquity       # rim height uprange bias
-    ejecta_asym_strength = 0.5 * obliquity    # ejecta downrange bias
+    # Directional strength factors — significantly enhanced for visual clarity
+    depth_asym_strength = 0.5 * obliquity     # depth shift downrange
+    rim_asym_strength = 0.6 * obliquity       # rim height uprange bias
+    ejecta_asym_strength = 0.75 * obliquity   # ejecta downrange bias
 
     # ── Build coordinate axes ─────────────────────────────────────────
     x_axis = np.linspace(-half_domain, half_domain, width)
@@ -188,7 +189,7 @@ def generate_asymmetric_elevation_field(
     # Base parabolic profile
     bowl_depth = -crater_depth * (1.0 - (r_ellip[bowl_mask] / radius) ** 2)
 
-    # Depth asymmetry: deeper downrange
+    # Depth asymmetry: deeper downrange, shallower uprange
     depth_mod = 1.0 + depth_asym_strength * cos_dir[bowl_mask]
     z[bowl_mask] = bowl_depth * depth_mod
 
@@ -202,8 +203,15 @@ def generate_asymmetric_elevation_field(
     z[rim_mask] = rim_height * rim_mod * np.exp(-3.0 * t_rim ** 2)
 
     # ── Zone 3: Power-law ejecta blanket (with asymmetry) ─────────────
-    ejecta_mask = (r_ellip > rim_outer) & (r_ellip <= ejecta_outer)
-    t_ej = (r_ellip[ejecta_mask] - rim_outer) / (ejecta_outer - rim_outer)
+    # Extend ejecta range downrange
+    ejecta_range_mod = 1.0 + ejecta_asym_strength * np.maximum(cos_dir, 0)
+    ejecta_outer_grid = radius + rim_width * _EJECTA_RANGE_FACTOR * ejecta_range_mod
+
+    ejecta_mask = (r_ellip > rim_outer) & (r_ellip <= ejecta_outer_grid)
+    t_ej = (r_ellip[ejecta_mask] - rim_outer) / (
+        ejecta_outer_grid[ejecta_mask] - rim_outer
+    )
+    t_ej = np.clip(t_ej, 0.0, 1.0)
     ejecta_peak = rim_height * _EJECTA_PEAK_RATIO
 
     # Ejecta asymmetry: more ejecta downrange
