@@ -31,20 +31,18 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
 directionalLight.position.set(5, 3, 5);
 scene.add(directionalLight);
 
+const fillLight = new THREE.DirectionalLight(0x8899aa, 0.8);
+fillLight.position.set(-5, -2, -5);
+scene.add(fillLight);
+
 const radius = 1;
-// SphereGeometry(radius, widthSegments, heightSegments, phiStart, phiLength, thetaStart, thetaLength)
-// In Three.js, equirectangular mapping:
-// u = 0 is +Z, u = 0.25 is +X, u = 0.5 is -Z, u = 0.75 is -X.
-// The texture from our backend goes from -180 to +180.
-// So center of texture (lon=0) is at u=0.5, which is -Z.
-// If we want prime meridian (lon=0) to be at +Z, we must rotate the geometry by PI around Y.
 const geometry = new THREE.SphereGeometry(radius, 128, 64);
 geometry.rotateY(Math.PI);
 
 const material = new THREE.MeshStandardMaterial({
-    color: 0x999999,
-    roughness: 0.9,
-    metalness: 0.1
+    color: 0xffffff,
+    roughness: 0.85,
+    metalness: 0.05
 });
 const moon = new THREE.Mesh(geometry, material);
 scene.add(moon);
