@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Run a new lunar crater impact simulation using the Pi-Scaling Crater Model. View interactive terrain maps and cross-section profiles.">
     <title>LunaLab — New Experiment</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
     <style>
         /* ── Terrain section extras ─────────────────────────── */
@@ -155,22 +155,22 @@
                 </h3>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Click to auto-populate parameters</span>
             </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
-                <button type="button" class="btn btn--secondary preset-card" data-diam="50" data-vel="12800" data-angle="45" data-az="45" data-notes="Meteor Crater (Barringer Crater, Arizona analog) — 50m nickel-iron impactor at 45° angle producing ~1.2km crater." style="text-align: left; padding: 10px; height: auto;">
-                    <div style="font-weight: 600; color: #38bdf8; font-size: 0.85rem;">💥 Meteor Crater</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">50m @ 12.8 km/s (45° oblique)</div>
+            <div class="preset-grid">
+                <button type="button" class="preset-card" data-diam="50" data-vel="12800" data-angle="45" data-az="45" data-notes="Meteor Crater (Barringer Crater, Arizona analog) — 50m nickel-iron impactor at 45° angle producing ~1.2km crater.">
+                    <div class="preset-card__title" style="color: #38bdf8;">💥 Meteor Crater</div>
+                    <div class="preset-card__desc">50m @ 12.8 km/s (45° oblique)</div>
                 </button>
-                <button type="button" class="btn btn--secondary preset-card" data-diam="2000" data-vel="15000" data-angle="45" data-az="120" data-lat="-43.3" data-lon="-11.2" data-notes="Tycho Crater Scale — ~2km asteroid creating ~85km rayed complex crater on Lunar south." style="text-align: left; padding: 10px; height: auto;">
-                    <div style="font-weight: 600; color: #a78bfa; font-size: 0.85rem;">🌕 Tycho Crater Event</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">2 km @ 15.0 km/s (Lunar target)</div>
+                <button type="button" class="preset-card" data-diam="2000" data-vel="15000" data-angle="45" data-az="120" data-lat="-43.3" data-lon="-11.2" data-notes="Tycho Crater Scale — ~2km asteroid creating ~85km rayed complex crater on Lunar south.">
+                    <div class="preset-card__title" style="color: #a78bfa;">🌕 Tycho Crater Event</div>
+                    <div class="preset-card__desc">2 km @ 15.0 km/s (Lunar target)</div>
                 </button>
-                <button type="button" class="btn btn--secondary preset-card" data-diam="20" data-vel="19000" data-angle="20" data-az="280" data-notes="Chelyabinsk-scale Shallow Impactor — 20m body at low 20° grazing angle producing extreme asymmetric downrange ejecta." style="text-align: left; padding: 10px; height: auto;">
-                    <div style="font-weight: 600; color: #fbbf24; font-size: 0.85rem;">☄️ Shallow Grazing Impact</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">20m @ 19.0 km/s (20° grazing)</div>
+                <button type="button" class="preset-card" data-diam="20" data-vel="19000" data-angle="20" data-az="280" data-notes="Chelyabinsk-scale Shallow Impactor — 20m body at low 20° grazing angle producing extreme asymmetric downrange ejecta.">
+                    <div class="preset-card__title" style="color: #fbbf24;">☄️ Shallow Grazing Impact</div>
+                    <div class="preset-card__desc">20m @ 19.0 km/s (20° grazing)</div>
                 </button>
-                <button type="button" class="btn btn--secondary preset-card" data-diam="10000" data-vel="20000" data-angle="60" data-az="150" data-notes="Chicxulub Dinosaur Extinction Class — 10km giant impactor with catastrophic multi-megaton energy release." style="text-align: left; padding: 10px; height: auto;">
-                    <div style="font-weight: 600; color: #f43f5e; font-size: 0.85rem;">🦖 Chicxulub Super-Impact</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">10 km @ 20.0 km/s (60° angle)</div>
+                <button type="button" class="preset-card" data-diam="10000" data-vel="20000" data-angle="60" data-az="150" data-notes="Chicxulub Dinosaur Extinction Class — 10km giant impactor with catastrophic multi-megaton energy release.">
+                    <div class="preset-card__title" style="color: #f43f5e;">🦖 Chicxulub Super-Impact</div>
+                    <div class="preset-card__desc">10 km @ 20.0 km/s (60° angle)</div>
                 </button>
             </div>
         </div>
@@ -475,7 +475,8 @@ document.querySelectorAll('.preset-card').forEach(card => {
         if (card.dataset.lon) document.getElementById('longitude').value = card.dataset.lon;
         if (card.dataset.notes) document.getElementById('experiment_notes').value = card.dataset.notes;
 
-        showToast('Preset loaded: ' + card.querySelector('div').textContent, 'info');
+        const title = card.querySelector('.preset-card__title')?.textContent || 'Preset';
+        showToast('Preset loaded: ' + title, 'info');
         document.getElementById('simulation-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
 });
