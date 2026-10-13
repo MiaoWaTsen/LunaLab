@@ -51,6 +51,50 @@ class CompareRequest(BaseModel):
     )
 
 
+class RegisterRequest(BaseModel):
+    """Request body for POST /api/auth/register."""
+    username: str = Field(..., min_length=2, max_length=30, description="Commander username")
+    password: str = Field(..., min_length=4, max_length=100, description="Account password")
+
+
+class LoginRequest(BaseModel):
+    """Request body for POST /api/auth/login."""
+    username: str = Field(..., description="Commander username")
+    password: str = Field(..., description="Account password")
+
+
+class UserProfile(BaseModel):
+    """User profile data."""
+    id: int
+    username: str
+    created_at: str
+    xp: int
+    level: int
+    rank_title: str
+
+
+class AuthResponse(BaseModel):
+    """Response containing auth token and user profile."""
+    token: str
+    user: UserProfile
+
+
+class ChallengeSubmitRequest(BaseModel):
+    """Request body for POST /api/challenges/{challenge_id}/run."""
+    simulation: SimulationRequest
+
+
+class ChallengeRecordItem(BaseModel):
+    id: int
+    challenge_id: str
+    score: float
+    grade: str
+    diameter_error_pct: float
+    depth_error_pct: float
+    experiment_id: Optional[int]
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------

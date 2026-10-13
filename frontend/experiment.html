@@ -123,8 +123,9 @@
                 LunaLab
             </a>
             <ul class="navbar__links">
-                <li><a href="/" class="navbar__link" id="nav-dashboard">Dashboard</a></li>
-                <li><a href="/experiment" class="navbar__link navbar__link--active" id="nav-experiment">New Experiment</a></li>
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link navbar__link--active" id="nav-experiment">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">🎮 Challenges</a></li>
                 <li><a href="/history" class="navbar__link" id="nav-history">History</a></li>
             </ul>
         </div>
@@ -589,6 +590,10 @@ document.getElementById('simulation-form').addEventListener('submit', async (e) 
     try {
         const result = await apiPost('/api/simulations', body);
 
+        // Play audio impact simulation and screen shake
+        playImpactSound(result.energy_joules);
+        triggerScreenShake();
+
         // Fetch profile + elevation field in parallel
         const [profile, elevation] = await Promise.all([
             apiGet(`/api/experiments/${result.experiment_id}/profile`),
@@ -596,7 +601,15 @@ document.getElementById('simulation-form').addEventListener('submit', async (e) 
         ]);
 
         displayResults(result, profile, elevation, body, /* isSaved= */ true);
-        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved.', 'success');
+        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved (+15 XP)', 'success');
+        
+        // Refresh commander XP if logged in
+        if (getAuthToken()) {
+            apiGet('/api/auth/me').then(me => {
+                setStoredUser(me);
+                updateNavUser();
+            }).catch(() => {});
+        }
     } catch (err) {
         showToast('Simulation failed: ' + err.message, 'error');
     } finally {

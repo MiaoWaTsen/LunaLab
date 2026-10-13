@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Gamified Lunar Impact Missions. Challenge real-world crater replication, achieve scientific grades, and earn research commander ranks.">
+    <title>LunaLab — Mission Challenges</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon">🌑</span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">Dashboard</a></li>
+                <li><a href="/moon" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link navbar__link--active">🎮 Challenges</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Header -->
+        <div class="page-header flex items-center justify-between" style="flex-wrap: wrap; gap: var(--space-md);">
+            <div>
+                <h1 class="page-header__title">🎮 Lunar Impact Challenges</h1>
+                <p class="page-header__subtitle">
+                    Adjust real physical impactor parameters to match known lunar craters and planetary defense targets!
+                </p>
+            </div>
+            <div class="flex items-center gap-sm">
+                <button type="button" class="btn btn--secondary btn--sm" id="btn-sound-toggle" onclick="toggleAudioFx()">
+                    🔊 Sound FX: ON
+                </button>
+            </div>
+        </div>
+
+        <!-- Mission Selection Cards -->
+        <div class="challenge-grid" id="challenge-list">
+            <!-- Dynamically populated -->
+        </div>
+
+        <!-- Mission Workbench -->
+        <section class="section hidden" id="section-workbench">
+            <div class="card card--glow">
+                <div class="flex items-center justify-between" style="margin-bottom: var(--space-md); flex-wrap: wrap; gap: var(--space-sm);">
+                    <div>
+                        <span class="badge badge--model" id="mission-badge" style="margin-bottom: 6px; display: inline-block;">Target Mission</span>
+                        <h2 class="card__title" id="mission-title" style="margin: 0;">—</h2>
+                    </div>
+                    <div id="mission-difficulty" class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc;">—</div>
+                </div>
+
+                <p id="mission-desc" style="color: var(--text-secondary); font-size: 0.92rem; line-height: 1.6; margin-bottom: var(--space-md);">
+                    —
+                </p>
+
+                <div class="card" style="background: var(--bg-secondary); border-color: rgba(99, 102, 241, 0.3); padding: var(--space-md); margin-bottom: var(--space-lg);">
+                    <div style="font-size: 0.82rem; font-weight: 600; color: #38bdf8; margin-bottom: 4px;">🔬 Scientific Briefing:</div>
+                    <div id="mission-tips" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">—</div>
+                </div>
+
+                <!-- Simulation Form -->
+                <form id="challenge-form" class="form-grid" novalidate>
+                    <div class="form-group">
+                        <label class="form-label" for="c-diameter">
+                            Impactor Diameter <span class="form-label__unit">(m)</span>
+                        </label>
+                        <input type="number" id="c-diameter" class="form-input" step="any" min="0.1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="c-velocity">
+                            Impact Velocity <span class="form-label__unit">(m/s)</span>
+                        </label>
+                        <input type="number" id="c-velocity" class="form-input" step="any" min="100" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="c-angle">
+                            Impact Angle <span class="form-label__unit">(° from vertical)</span>
+                        </label>
+                        <input type="number" id="c-angle" class="form-input" step="any" min="1" max="90" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="c-azimuth">
+                            Impact Azimuth <span class="form-label__unit">(°)</span>
+                        </label>
+                        <input type="number" id="c-azimuth" class="form-input" step="any" value="45">
+                    </div>
+
+                    <div class="form-actions" style="grid-column: 1 / -1; margin-top: var(--space-sm);">
+                        <button type="submit" class="btn btn--primary btn--lg" id="btn-run-challenge" style="box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);">
+                            🚀 Launch Impact &amp; Evaluate Match
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Evaluation Results Section -->
+        <section class="section hidden" id="section-evaluation">
+            <div class="card card--glow" style="border-color: rgba(34, 211, 238, 0.4);">
+                <div class="text-center" style="margin-bottom: var(--space-lg);">
+                    <div class="grade-badge" id="eval-grade-badge">S</div>
+                    <h2 style="font-size: 1.6rem; color: #f1f5f9; margin-bottom: 4px;" id="eval-score-text">Score: 95.0 / 100</h2>
+                    <div class="badge" id="eval-xp-badge" style="background: rgba(34, 211, 238, 0.2); color: #22d3ee; font-size: 0.85rem; padding: 4px 12px;">
+                        +150 XP Awarded
+                    </div>
+                </div>
+
+                <!-- Feedback -->
+                <div class="card" style="background: var(--bg-secondary); margin-bottom: var(--space-lg); border-color: var(--border-primary);">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px;">Flight Director Diagnostics</div>
+                    <div id="eval-feedback" style="font-size: 0.95rem; color: #e2e8f0; line-height: 1.6;">—</div>
+                </div>
+
+                <!-- Metrics Comparison Grid -->
+                <div class="results-grid" style="margin-bottom: var(--space-xl);">
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-crater-diam">—</div>
+                        <div class="result-metric__label">Resulting Diameter (m)</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-diam-err">—</div>
+                        <div class="result-metric__label">Diameter Error</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-crater-depth">—</div>
+                        <div class="result-metric__label">Resulting Depth (m)</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-depth-err">—</div>
+                        <div class="result-metric__label">Depth Error</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-energy">—</div>
+                        <div class="result-metric__label">Kinetic Energy</div>
+                    </div>
+                    <div class="result-metric">
+                        <div class="result-metric__value" id="eval-ejecta">—</div>
+                        <div class="result-metric__label">Ejecta Volume (m³)</div>
+                    </div>
+                </div>
+
+                <!-- Cross Section Chart -->
+                <h3 style="font-size: 1.05rem; margin-bottom: var(--space-sm); color: #e2e8f0;">🌋 Cross-Section Profile</h3>
+                <div class="chart-container" id="chart-challenge-profile" style="margin-bottom: var(--space-lg);"></div>
+
+                <!-- 2D Terrain Heatmap -->
+                <h3 style="font-size: 1.05rem; margin-bottom: var(--space-sm); color: #e2e8f0;">🗺️ Generated Crater Terrain</h3>
+                <div class="chart-container chart-container--tall" id="chart-challenge-terrain"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.2.0 — Scientific Impact Simulation &amp; Mission Challenges
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+let challenges = [];
+let currentChallenge = null;
+
+function updateSoundButton() {
+    const btn = document.getElementById('btn-sound-toggle');
+    if (btn) {
+        btn.textContent = isSoundEnabled() ? '🔊 Sound FX: ON' : '🔇 Sound FX: OFF';
+    }
+}
+
+function toggleAudioFx() {
+    setSoundEnabled(!isSoundEnabled());
+    updateSoundButton();
+    if (isSoundEnabled()) playImpactSound(1e12);
+}
+
+// ---------------------------------------------------------------------------
+// Load & Render Challenges
+// ---------------------------------------------------------------------------
+async function loadChallenges() {
+    try {
+        const res = await apiGet('/api/challenges');
+        challenges = res.challenges || [];
+        renderChallengeCards();
+    } catch (err) {
+        showToast('Failed to load challenges: ' + err.message, 'error');
+    }
+}
+
+function renderChallengeCards() {
+    const container = document.getElementById('challenge-list');
+    container.innerHTML = '';
+
+    challenges.forEach((ch, idx) => {
+        const card = document.createElement('div');
+        card.className = `challenge-card ${idx === 0 ? 'active' : ''}`;
+        card.id = `ch-card-${ch.id}`;
+        card.innerHTML = `
+            <div>
+                <div class="flex items-center justify-between" style="margin-bottom: var(--space-sm);">
+                    <span class="badge badge--model" style="font-size: 0.72rem;">${ch.badge || 'Mission'}</span>
+                    <span style="font-size: 0.75rem; color: #a5b4fc;">${ch.difficulty}</span>
+                </div>
+                <h3 style="font-size: 1.05rem; color: #f1f5f9; margin-bottom: var(--space-sm); font-weight: 600;">
+                    ${ch.title}
+                </h3>
+                <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: var(--space-md);">
+                    ${ch.description}
+                </p>
+            </div>
+            <div>
+                <div style="font-size: 0.78rem; font-family: var(--font-mono); color: #38bdf8; margin-bottom: var(--space-md);">
+                    Target: ${ch.target_diameter ? formatNumber(ch.target_diameter) + ' m ⌀' : 'Special Energy Threshold'}
+                </div>
+                <button type="button" class="btn btn--primary" style="width: 100%; font-size: 0.82rem;" onclick="selectChallenge('${ch.id}')">
+                    🎯 Select Mission
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+
+    if (challenges.length > 0) {
+        selectChallenge(challenges[0].id);
+    }
+}
+
+function selectChallenge(chId) {
+    currentChallenge = challenges.find(c => c.id === chId);
+    if (!currentChallenge) return;
+
+    document.querySelectorAll('.challenge-card').forEach(c => c.classList.remove('active'));
+    const activeEl = document.getElementById(`ch-card-${chId}`);
+    if (activeEl) activeEl.classList.add('active');
+
+    document.getElementById('section-workbench').classList.remove('hidden');
+    document.getElementById('mission-title').textContent = currentChallenge.title;
+    document.getElementById('mission-desc').textContent = currentChallenge.description;
+    document.getElementById('mission-difficulty').textContent = currentChallenge.difficulty;
+    document.getElementById('mission-badge').textContent = currentChallenge.badge || 'Mission';
+    document.getElementById('mission-tips').textContent = currentChallenge.tips || 'Adjust diameter and velocity.';
+
+    // Populate suggested defaults
+    if (chId === 'tycho_crater') {
+        document.getElementById('c-diameter').value = 2500;
+        document.getElementById('c-velocity').value = 16000;
+        document.getElementById('c-angle').value = 45;
+    } else if (chId === 'grazing_skimmer') {
+        document.getElementById('c-diameter').value = 120;
+        document.getElementById('c-velocity').value = 18000;
+        document.getElementById('c-angle').value = 15;
+    } else if (chId === 'dinosaur_extinction') {
+        document.getElementById('c-diameter').value = 10000;
+        document.getElementById('c-velocity').value = 20000;
+        document.getElementById('c-angle').value = 60;
+    } else if (chId === 'apollo_tranquillity') {
+        document.getElementById('c-diameter').value = 8;
+        document.getElementById('c-velocity').value = 16000;
+        document.getElementById('c-angle').value = 45;
+    }
+
+    document.getElementById('section-workbench').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---------------------------------------------------------------------------
+// Run & Evaluate Challenge Simulation
+// ---------------------------------------------------------------------------
+document.getElementById('challenge-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentChallenge) return;
+
+    const diameter = parseFloat(document.getElementById('c-diameter').value);
+    const velocity = parseFloat(document.getElementById('c-velocity').value);
+    const angle = parseFloat(document.getElementById('c-angle').value);
+    const azimuth = parseFloat(document.getElementById('c-azimuth').value) || 45;
+
+    const btn = document.getElementById('btn-run-challenge');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Simulating Impact…';
+
+    try {
+        const payload = {
+            simulation: {
+                impactor_diameter: diameter,
+                impact_velocity: velocity,
+                impact_angle: angle,
+                impact_azimuth: azimuth,
+                impactor_density: 3000,
+                target_density: 2500,
+                surface_gravity: 1.62
+            }
+        };
+
+        const res = await apiPost(`/api/challenges/${currentChallenge.id}/run`, payload);
+        const { evaluation, simulation, user } = res;
+
+        // Play scientific impact audio and shake screen
+        playImpactSound(simulation.energy_joules);
+        triggerScreenShake();
+
+        // Update user state if updated
+        if (user) {
+            setStoredUser(user);
+            updateNavUser();
+        }
+
+        // Fetch cross section profile & elevation field
+        const [profile, elevation] = await Promise.all([
+            apiGet(`/api/experiments/${simulation.experiment_id}/profile`),
+            apiGet(`/api/experiments/${simulation.experiment_id}/elevation`),
+        ]);
+
+        displayEvaluationResults(evaluation, simulation, profile, elevation);
+        showToast(`Mission evaluated! Grade: ${evaluation.grade} (${evaluation.score} pts)`, evaluation.passed ? 'success' : 'info');
+    } catch (err) {
+        showToast('Challenge simulation failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Launch Impact &amp; Evaluate Match';
+    }
+});
+
+function displayEvaluationResults(evaluation, simulation, profile, elevation) {
+    const sec = document.getElementById('section-evaluation');
+    sec.classList.remove('hidden');
+
+    const gradeBadge = document.getElementById('eval-grade-badge');
+    gradeBadge.textContent = evaluation.grade;
+    gradeBadge.className = `grade-badge grade-badge--${evaluation.grade.toLowerCase()}`;
+
+    document.getElementById('eval-score-text').textContent = `Score: ${evaluation.score} / 100 (${evaluation.grade}-Tier)`;
+    document.getElementById('eval-xp-badge').textContent = `+${evaluation.xp_gain} Research XP Awarded`;
+    document.getElementById('eval-feedback').textContent = evaluation.feedback;
+
+    document.getElementById('eval-crater-diam').textContent = formatNumber(simulation.crater_diameter);
+    document.getElementById('eval-diam-err').textContent = evaluation.diameter_error_pct + '%';
+    document.getElementById('eval-crater-depth').textContent = formatNumber(simulation.crater_depth);
+    document.getElementById('eval-depth-err').textContent = evaluation.depth_error_pct + '%';
+    document.getElementById('eval-energy').textContent = formatEnergy(simulation.energy_joules);
+    document.getElementById('eval-ejecta').textContent = formatNumber(simulation.ejecta_volume);
+
+    // Render Profile Chart
+    renderChallengeProfile(profile);
+
+    // Render Terrain Heatmap
+    renderChallengeTerrain(elevation);
+
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderChallengeProfile(profile) {
+    const trace = {
+        x: profile.x,
+        y: profile.y,
+        type: 'scatter',
+        mode: 'lines',
+        line: { color: '#22d3ee', width: 2.5 },
+        fill: 'tozeroy',
+        fillcolor: 'rgba(34, 211, 238, 0.12)',
+        name: 'Profile',
+        hovertemplate: 'x: %{x:.1f} m<br>Elevation: %{y:.2f} m<extra></extra>',
+    };
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        height: 280,
+        margin: { t: 20, r: 20, b: 40, l: 50 },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Distance from Centre (m)' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Elevation (m)' },
+        showlegend: false,
+    };
+    Plotly.newPlot('chart-challenge-profile', [trace], layout, PLOTLY_CONFIG);
+}
+
+function renderChallengeTerrain(field) {
+    const trace = {
+        type: 'heatmap',
+        x: field.x,
+        y: field.y,
+        z: field.z,
+        colorscale: [
+            [0.00, '#312e81'],
+            [0.25, '#1e3a8a'],
+            [0.45, '#0284c7'],
+            [0.50, '#0f172a'],
+            [0.55, '#0d9488'],
+            [0.75, '#fbbf24'],
+            [1.00, '#f97316'],
+        ],
+        showscale: true,
+        colorbar: {
+            title: { text: 'm', font: { color: '#94a3b8', size: 11 } },
+            tickfont: { color: '#94a3b8', size: 10 },
+            thickness: 12,
+            len: 0.85,
+        },
+        hovertemplate: 'x: %{x:.1f} m<br>y: %{y:.1f} m<br>z: %{z:.2f} m<extra></extra>',
+    };
+    const layout = {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        height: 380,
+        margin: { t: 20, r: 20, b: 40, l: 50 },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Y (m)', scaleanchor: 'x' },
+    };
+    Plotly.newPlot('chart-challenge-terrain', [trace], layout, PLOTLY_CONFIG);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateSoundButton();
+    loadChallenges();
+});
+</script>
+</body>
+</html>

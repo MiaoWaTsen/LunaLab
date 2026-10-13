@@ -12,9 +12,10 @@ It does NOT contain any simulation math or direct SQL.
 """
 
 import json
+from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,12 +27,23 @@ from backend.schemas import (
     ExperimentDetail,
     CraterProfile,
     ElevationField,
+    RegisterRequest,
+    LoginRequest,
+    UserProfile,
+    AuthResponse,
+    ChallengeSubmitRequest,
+    ChallengeRecordItem,
 )
 from simulation.crater_model import (
     ImpactParameters,
     run_simulation,
     generate_crater_profile,
     ValidationError,
+)
+from simulation.challenges import (
+    CHALLENGES,
+    get_challenge_by_id,
+    evaluate_challenge,
 )
 from terrain.lunar_surface import get_surface_provider
 from terrain.crater_terrain import generate_elevation_field
@@ -43,6 +55,14 @@ from database.models import (
     get_all_experiments,
     get_experiments_by_ids,
     delete_experiment,
+    create_user,
+    authenticate_user,
+    create_session,
+    get_user_by_session,
+    delete_session,
+    add_user_xp,
+    save_challenge_record,
+    get_user_challenge_records,
 )
 
 
@@ -81,14 +101,135 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# API routes
+# Auth Helper
+# ---------------------------------------------------------------------------
+
+def get_current_user_optional(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """Extract user from Bearer token if provided."""
+    if not authorization:
+        return None
+    token = authorization.replace("Bearer ", "").strip()
+    return get_user_by_session(token)
+
+
+# ---------------------------------------------------------------------------
+# Auth routes
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+def register(req: RegisterRequest):
+    """Register a new user commander."""
+    try:
+        user = create_user(req.username, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = create_session(user["id"])
+    return {"token": token, "user": user}
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(req: LoginRequest):
+    """Authenticate commander and return session token."""
+    user = authenticate_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = create_session(user["id"])
+    return {"token": token, "user": user}
+
+
+@app.get("/api/auth/me", response_model=UserProfile)
+def get_me(authorization: Optional[str] = Header(None)):
+    """Retrieve logged in user profile."""
+    user = get_current_user_optional(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return user
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    """Invalidate current session token."""
+    if authorization:
+        token = authorization.replace("Bearer ", "").strip()
+        delete_session(token)
+    return {"detail": "Logged out successfully."}
+
+
+# ---------------------------------------------------------------------------
+# Gamification / Challenge routes
+# ---------------------------------------------------------------------------
+
+@app.get("/api/challenges")
+def list_challenges():
+    """List all available scientific crater challenge missions."""
+    return {"challenges": CHALLENGES}
+
+
+@app.post("/api/challenges/{challenge_id}/run")
+def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization: Optional[str] = Header(None)):
+    """
+    Run simulation within a challenge mission, evaluate accuracy, and award XP.
+    """
+    ch = get_challenge_by_id(challenge_id)
+    if not ch:
+        raise HTTPException(status_code=404, detail="Challenge mission not found.")
+
+    sim_res = create_simulation(req.simulation, authorization=authorization)
+    eval_res = evaluate_challenge(
+        challenge_id,
+        {
+            "crater_diameter": sim_res.crater_diameter,
+            "crater_depth": sim_res.crater_depth,
+            "energy_joules": sim_res.energy_joules,
+        },
+        req.simulation.model_dump(),
+    )
+
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    updated_user = None
+
+    if user:
+        updated_user = add_user_xp(user["id"], eval_res["xp_gain"])
+
+    rec_id = save_challenge_record({
+        "user_id": user_id,
+        "challenge_id": challenge_id,
+        "score": eval_res["score"],
+        "grade": eval_res["grade"],
+        "diameter_error_pct": eval_res["diameter_error_pct"],
+        "depth_error_pct": eval_res["depth_error_pct"],
+        "experiment_id": sim_res.experiment_id,
+    })
+    eval_res["record_id"] = rec_id
+
+    return {
+        "evaluation": eval_res,
+        "simulation": sim_res,
+        "user": updated_user,
+    }
+
+
+@app.get("/api/challenges/history")
+def get_challenge_history(authorization: Optional[str] = Header(None)):
+    """Retrieve recent challenge mission attempts."""
+    user = get_current_user_optional(authorization)
+    user_id = user["id"] if user else None
+    records = get_user_challenge_records(user_id=user_id)
+    return {"records": records}
+
+
+# ---------------------------------------------------------------------------
+# Simulation API routes
 # ---------------------------------------------------------------------------
 
 @app.post("/api/simulations", response_model=SimulationResponse)
-def create_simulation(req: SimulationRequest):
+def create_simulation(req: SimulationRequest, authorization: Optional[str] = Header(None)):
     """
     Run a crater-scaling simulation and persist the result.
     """
+    user = get_current_user_optional(authorization)
+
     # Build domain object
     params = ImpactParameters(
         impactor_diameter=req.impactor_diameter,
@@ -134,8 +275,13 @@ def create_simulation(req: SimulationRequest):
         "latitude": req.latitude,
         "longitude": req.longitude,
         "surface_elevation": elevation,
+        "user_id": user["id"] if user else None,
     }
     experiment_id = save_experiment(experiment_data)
+
+    # Award +15 Research XP if logged in
+    if user:
+        add_user_xp(user["id"], 15)
 
     impact_loc = None
     if req.latitude is not None and req.longitude is not None:
@@ -312,3 +458,14 @@ def serve_compare():
 @app.get("/moon")
 def serve_moon():
     return FileResponse(os.path.join(_FRONTEND_DIR, "moon.html"))
+
+
+@app.get("/challenge")
+def serve_challenge():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "challenge.html"))
+
+
+@app.get("/login")
+def serve_login():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "login.html"))
+
