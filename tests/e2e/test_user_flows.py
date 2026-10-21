@@ -140,6 +140,10 @@ def test_expired_session_returns_to_login(page, server):
     base = server["base"]
     register(page, base)
     wait_url(page, f"{base}/")
+    # Let the landing page's own /api/auth/me finish first.  Each valid request
+    # slides the session expiry forward, so a request still in flight would
+    # overwrite the expiry written below and revive the session (seen on CI).
+    page.wait_for_load_state("networkidle")
     conn = sqlite3.connect(server["db"])
     conn.execute("UPDATE user_sessions SET expires_at = '2000-01-01T00:00:00+00:00'")
     conn.commit()
