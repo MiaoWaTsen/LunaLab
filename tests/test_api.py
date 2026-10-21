@@ -25,9 +25,19 @@ def client():
     """Create a test client with a fresh temporary database."""
     init_db(_temp_db.name)
     with TestClient(app) as c:
+        login_as(c, "api-tester")
         yield c
     # Cleanup
     os.unlink(_temp_db.name)
+
+
+def login_as(c, username):
+    """Register a user and send its token on every request from this client."""
+    res = c.post("/api/auth/register", json={"username": username, "password": "pass1234"})
+    if res.status_code != 200:
+        res = c.post("/api/auth/login", json={"username": username, "password": "pass1234"})
+    c.headers["Authorization"] = f"Bearer {res.json()['token']}"
+    return res.json()["user"]
 
 
 # ---------------------------------------------------------------------------
@@ -296,3 +306,67 @@ class TestGetElevation:
     def test_elevation_nonexistent_experiment_404(self, client):
         res = client.get("/api/experiments/999999/elevation")
         assert res.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Access control & input limits
+# ---------------------------------------------------------------------------
+
+SIM = {"impactor_diameter": 10, "impact_velocity": 20000, "impact_angle": 45}
+
+
+class TestAccessControl:
+    def test_endpoints_require_login(self):
+        with TestClient(app) as anon:
+            assert anon.post("/api/simulations", json=SIM).status_code == 401
+            assert anon.get("/api/experiments").status_code == 401
+            assert anon.get("/api/experiments/1").status_code == 401
+            assert anon.delete("/api/experiments/1").status_code == 401
+            assert anon.post("/api/challenges/tycho_crater/run", json={"simulation": SIM}).status_code == 401
+
+    def test_public_endpoints_stay_open(self):
+        with TestClient(app) as anon:
+            assert anon.get("/api/challenges").status_code == 200
+            assert anon.get("/api/moon/elevation", params={"lat": 0, "lon": 0}).status_code == 200
+
+    def test_other_users_cannot_see_or_delete(self, client):
+        eid = client.post("/api/simulations", json=SIM).json()["experiment_id"]
+        with TestClient(app) as other:
+            login_as(other, "intruder")
+            assert other.get(f"/api/experiments/{eid}").status_code == 404
+            assert other.get(f"/api/experiments/{eid}/profile").status_code == 404
+            assert other.delete(f"/api/experiments/{eid}").status_code == 404
+            ids = [e["id"] for e in other.get("/api/experiments").json()["experiments"]]
+            assert eid not in ids
+        assert client.get(f"/api/experiments/{eid}").status_code == 200
+
+    def test_legacy_unowned_experiments_are_shared(self, client):
+        from database.models import save_experiment
+        legacy_id = save_experiment({
+            "impactor_diameter": 1, "impact_velocity": 1, "impact_angle": 45,
+            "impactor_density": 3000, "target_density": 2550, "surface_gravity": 1.62,
+            "crater_diameter": 10, "crater_depth": 2, "rim_height": 0.4, "ejecta_volume": 1,
+            "transient_crater_diameter": 8, "energy_joules": 1, "model_name": "legacy",
+        }, db_path=_temp_db.name)
+        assert client.get(f"/api/experiments/{legacy_id}").status_code == 200
+
+
+class TestInputLimits:
+    @pytest.mark.parametrize("field,value", [
+        ("impactor_diameter", 1e100),
+        ("impactor_diameter", 1_000_001),
+        ("impact_velocity", 100_001),
+    ])
+    def test_values_above_limit_rejected_not_500(self, client, field, value):
+        assert client.post("/api/simulations", json={**SIM, field: value}).status_code == 422
+
+    def test_values_at_limit_accepted(self, client):
+        res = client.post("/api/simulations", json={**SIM, "impactor_diameter": 1_000_000, "impact_velocity": 100_000})
+        assert res.status_code == 200
+
+    def test_azimuth_is_normalised(self, client):
+        res = client.post("/api/simulations", json={**SIM, "impact_azimuth": -90})
+        assert res.json()["impact_azimuth"] == 270
+
+    def test_latitude_without_longitude_rejected(self, client):
+        assert client.post("/api/simulations", json={**SIM, "latitude": 10}).status_code == 422

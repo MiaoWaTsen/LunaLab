@@ -5,7 +5,7 @@ These schemas define the API contract and are used by FastAPI
 for automatic request validation and OpenAPI documentation.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 
 
@@ -16,22 +16,22 @@ from typing import Optional
 class SimulationRequest(BaseModel):
     """Request body for POST /api/simulations."""
     impactor_diameter: float = Field(
-        ..., gt=0, description="Impactor diameter in metres"
+        ..., gt=0, le=1_000_000, description="Impactor diameter in metres (max 1000 km)"
     )
     impact_velocity: float = Field(
-        ..., gt=0, description="Impact velocity in m/s"
+        ..., gt=0, le=100_000, description="Impact velocity in m/s (max 100 km/s)"
     )
     impact_angle: float = Field(
         ..., gt=0, le=90, description="Impact angle in degrees from horizontal (0–90], 90 = vertical"
     )
     impactor_density: Optional[float] = Field(
-        None, gt=0, description="Impactor density in kg/m³ (default: 3000)"
+        None, gt=0, le=30_000, description="Impactor density in kg/m³ (default: 3000)"
     )
     target_density: Optional[float] = Field(
-        None, gt=0, description="Target surface density in kg/m³ (default: 2550, lunar crust)"
+        None, gt=0, le=30_000, description="Target surface density in kg/m³ (default: 2550, lunar crust)"
     )
     surface_gravity: Optional[float] = Field(
-        None, gt=0, description="Surface gravity in m/s² (default: 1.62 — Moon)"
+        None, ge=0.01, le=100, description="Surface gravity in m/s² (default: 1.62 — Moon)"
     )
     impact_azimuth: Optional[float] = Field(
         0.0, description="Impact azimuth in degrees (0=North, clockwise)"
@@ -42,6 +42,18 @@ class SimulationRequest(BaseModel):
     longitude: Optional[float] = Field(
         None, ge=-180, le=180, description="Longitude of impact"
     )
+
+    @field_validator("impact_azimuth")
+    @classmethod
+    def _normalise_azimuth(cls, v: Optional[float]) -> float:
+        """Any heading is accepted and folded into [0, 360)."""
+        return 0.0 if v is None else v % 360.0
+
+    @model_validator(mode="after")
+    def _location_pair(self):
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be given together.")
+        return self
 
 
 class CompareRequest(BaseModel):

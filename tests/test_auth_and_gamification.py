@@ -165,7 +165,10 @@ def test_api_challenge_run_endpoint(client):
             "surface_gravity": 1.62,
         }
     }
-    run_res = client.post("/api/challenges/apollo_tranquillity/run", json=payload)
+    token = client.post("/api/auth/register", json={"username": "MissionRunner", "password": "pass1234"}).json()["token"]
+    assert client.post("/api/challenges/apollo_tranquillity/run", json=payload).status_code == 401
+    run_res = client.post("/api/challenges/apollo_tranquillity/run", json=payload,
+                          headers={"Authorization": f"Bearer {token}"})
     assert run_res.status_code == 200
     data = run_res.json()
     assert "evaluation" in data

@@ -295,6 +295,8 @@ class TestElevationEndpoint:
 
         init_db(_temp_db.name)
         with TestClient(app) as c:
+            res = c.post("/api/auth/register", json={"username": "terrain-tester", "password": "pass1234"})
+            c.headers["Authorization"] = f"Bearer {res.json()['token']}"
             yield c
 
         os.unlink(_temp_db.name)

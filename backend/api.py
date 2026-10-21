@@ -15,7 +15,7 @@ import json
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Response, Header
+from fastapi import FastAPI, HTTPException, Response, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,6 +116,27 @@ def get_current_user_optional(authorization: Optional[str] = Header(None)) -> Op
     return get_user_by_session(token)
 
 
+def require_user(authorization: Optional[str] = Header(None)) -> dict:
+    """Dependency: the signed-in user, or 401."""
+    user = get_current_user_optional(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return user
+
+
+def _can_access(exp: dict, user: dict) -> bool:
+    """Owners see their experiments; legacy rows with no owner are shared."""
+    return exp.get("user_id") is None or exp["user_id"] == user["id"]
+
+
+def _get_owned_experiment(experiment_id: int, user: dict) -> dict:
+    exp = get_experiment(experiment_id)
+    if exp is None or not _can_access(exp, user):
+        # 404 rather than 403 so other users' experiment ids are not revealed
+        raise HTTPException(status_code=404, detail="Experiment not found.")
+    return exp
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -170,7 +191,7 @@ def list_challenges():
 
 
 @app.post("/api/challenges/{challenge_id}/run")
-def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization: Optional[str] = Header(None)):
+def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, user: dict = Depends(require_user)):
     """
     Run simulation within a challenge mission, evaluate accuracy, and award XP.
     """
@@ -178,7 +199,7 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization:
     if not ch:
         raise HTTPException(status_code=404, detail="Challenge mission not found.")
 
-    sim_res = create_simulation(req.simulation, authorization=authorization)
+    sim_res = _simulate_and_save(req.simulation, user)
     eval_res = evaluate_challenge(
         challenge_id,
         {
@@ -189,16 +210,11 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization:
         req.simulation.model_dump(),
     )
 
-    user = get_current_user_optional(authorization)
-    user_id = user["id"] if user else None
-    updated_user = None
-
-    if user:
-        add_user_xp(user["id"], eval_res["xp_gain"])
-        updated_user = get_user_by_id(user["id"])
+    add_user_xp(user["id"], eval_res["xp_gain"])
+    updated_user = get_user_by_id(user["id"])
 
     rec_id = save_challenge_record({
-        "user_id": user_id,
+        "user_id": user["id"],
         "challenge_id": challenge_id,
         "score": eval_res["score"],
         "grade": eval_res["grade"],
@@ -216,11 +232,8 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization:
 
 
 @app.get("/api/challenges/history")
-def get_challenge_history(authorization: Optional[str] = Header(None)):
+def get_challenge_history(user: dict = Depends(require_user)):
     """Retrieve recent challenge mission attempts from all users (login required)."""
-    user = get_current_user_optional(authorization)
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated.")
     records = get_user_challenge_records(limit=50)
     return {"records": records}
 
@@ -230,11 +243,14 @@ def get_challenge_history(authorization: Optional[str] = Header(None)):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/simulations", response_model=SimulationResponse)
-def create_simulation(req: SimulationRequest, authorization: Optional[str] = Header(None)):
+def create_simulation(req: SimulationRequest, user: dict = Depends(require_user)):
     """
     Run a crater-scaling simulation and persist the result.
     """
-    user = get_current_user_optional(authorization)
+    return _simulate_and_save(req, user)
+
+
+def _simulate_and_save(req: SimulationRequest, user: dict) -> SimulationResponse:
 
     # Build domain object
     params = ImpactParameters(
@@ -281,13 +297,12 @@ def create_simulation(req: SimulationRequest, authorization: Optional[str] = Hea
         "latitude": req.latitude,
         "longitude": req.longitude,
         "surface_elevation": elevation,
-        "user_id": user["id"] if user else None,
+        "user_id": user["id"],
     }
     experiment_id = save_experiment(experiment_data)
 
-    # Award +15 Research XP if logged in
-    if user:
-        add_user_xp(user["id"], 15)
+    # Award +15 Research XP
+    add_user_xp(user["id"], 15)
 
     impact_loc = None
     if req.latitude is not None and req.longitude is not None:
@@ -319,27 +334,23 @@ def _with_crater_type(exp: dict) -> dict:
 
 
 @app.get("/api/experiments")
-def list_experiments():
-    """Return all experiments, newest first."""
-    experiments = [_with_crater_type(e) for e in get_all_experiments()]
+def list_experiments(user: dict = Depends(require_user)):
+    """Return the caller's experiments (plus legacy unowned ones), newest first."""
+    experiments = [_with_crater_type(e) for e in get_all_experiments() if _can_access(e, user)]
     return {"experiments": experiments}
 
 
 @app.get("/api/experiments/{experiment_id}")
-def get_experiment_detail(experiment_id: int):
+def get_experiment_detail(experiment_id: int, user: dict = Depends(require_user)):
     """Return a single experiment by ID."""
-    exp = get_experiment(experiment_id)
-    if exp is None:
-        raise HTTPException(status_code=404, detail="Experiment not found.")
+    exp = _get_owned_experiment(experiment_id, user)
     return _with_crater_type(exp)
 
 
 @app.get("/api/experiments/{experiment_id}/profile")
-def get_experiment_profile(experiment_id: int):
+def get_experiment_profile(experiment_id: int, user: dict = Depends(require_user)):
     """Generate crater profile data for visualization."""
-    exp = get_experiment(experiment_id)
-    if exp is None:
-        raise HTTPException(status_code=404, detail="Experiment not found.")
+    exp = _get_owned_experiment(experiment_id, user)
     exp = _with_crater_type(exp)
 
     profile = generate_crater_profile(
@@ -352,7 +363,7 @@ def get_experiment_profile(experiment_id: int):
 
 
 @app.get("/api/experiments/{experiment_id}/elevation", response_model=ElevationField)
-def get_experiment_elevation(experiment_id: int):
+def get_experiment_elevation(experiment_id: int, user: dict = Depends(require_user)):
     """
     Generate a synthetic 2-D elevation field (terrain map) for an experiment.
 
@@ -369,9 +380,7 @@ def get_experiment_elevation(experiment_id: int):
     Returns a 1024 × 512 grid (width × height) plus 1-D x/y coordinate
     arrays and scalar z_min/z_max for Plotly colour-scale normalisation.
     """
-    exp = get_experiment(experiment_id)
-    if exp is None:
-        raise HTTPException(status_code=404, detail="Experiment not found.")
+    exp = _get_owned_experiment(experiment_id, user)
     exp = _with_crater_type(exp)
 
     return generate_asymmetric_elevation_field(
@@ -385,9 +394,9 @@ def get_experiment_elevation(experiment_id: int):
 
 
 @app.post("/api/experiments/compare")
-def compare_experiments(req: CompareRequest):
+def compare_experiments(req: CompareRequest, user: dict = Depends(require_user)):
     """Return data for multiple experiments for side-by-side comparison."""
-    experiments = get_experiments_by_ids(req.experiment_ids)
+    experiments = [e for e in get_experiments_by_ids(req.experiment_ids) if _can_access(e, user)]
     if len(experiments) < 2:
         raise HTTPException(
             status_code=404,
@@ -410,8 +419,9 @@ def compare_experiments(req: CompareRequest):
 
 
 @app.delete("/api/experiments/{experiment_id}")
-def remove_experiment(experiment_id: int):
-    """Delete an experiment."""
+def remove_experiment(experiment_id: int, user: dict = Depends(require_user)):
+    """Delete one of the caller's experiments."""
+    _get_owned_experiment(experiment_id, user)
     deleted = delete_experiment(experiment_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Experiment not found.")

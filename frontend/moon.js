@@ -47,12 +47,63 @@ controls.maxDistance = 5;
 const ambientLight = new THREE.AmbientLight(0x404040, 1.0);
 scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
-directionalLight.position.set(5, 3, 5);
 scene.add(directionalLight);
 
 const fillLight = new THREE.DirectionalLight(0x8899aa, 0.8);
 fillLight.position.set(-5, -2, -5);
 scene.add(fillLight);
+
+// ---------------------------------------------------------------------------
+// Real sunlight for today's date
+// ---------------------------------------------------------------------------
+// The Moon's mean elongation D (Meeus, Astronomical Algorithms, ch. 47) gives
+// the phase. The sub-solar point sits at selenographic longitude ≈ 180° − D:
+// new moon (D = 0) lights the far side, first quarter (D = 90°) the eastern
+// limb, full moon (D = 180°) the near side. Libration and the ±1.5°
+// sub-solar latitude are ignored; the terminator is placed within about 6°.
+export function moonPhase(date = new Date()) {
+    const T = (date.getTime() / 86400000 + 2440587.5 - 2451545.0) / 36525;
+    const D = ((297.8501921 + 445267.1114034 * T) % 360 + 360) % 360;
+    const subSolarLon = ((180 - D) % 360 + 540) % 360 - 180;
+    const illuminated = (1 - Math.cos(D * Math.PI / 180)) / 2;
+    const names = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous',
+                   'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
+    const name = names.at(Math.round(D / 45) % 8);
+    return { D, subSolarLon, illuminated, name };
+}
+
+const sunToggle = document.getElementById('btn-sun-toggle');
+const sunInfo = document.getElementById('sun-info');
+let realSunlight = true;
+
+function applyLighting() {
+    if (realSunlight) {
+        const phase = moonPhase();
+        directionalLight.position.copy(latLonToLocal(0, phase.subSolarLon).multiplyScalar(5));
+        directionalLight.intensity = 3.0;
+        ambientLight.intensity = 0.35;   // faint "earthshine" so the night side stays pickable
+        fillLight.visible = false;
+        if (sunInfo) {
+            const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            sunInfo.textContent = `Sunlight for ${today} · ${phase.name}, ${Math.round(phase.illuminated * 100)}% of the near side lit`;
+        }
+        if (sunToggle) sunToggle.textContent = 'Even lighting';
+    } else {
+        directionalLight.position.set(5, 3, 5);
+        directionalLight.intensity = 2.5;
+        ambientLight.intensity = 1.0;
+        fillLight.visible = true;
+        if (sunInfo) sunInfo.textContent = 'Even studio lighting (not the real Sun)';
+        if (sunToggle) sunToggle.textContent = 'Real sunlight';
+    }
+}
+
+if (sunToggle) {
+    sunToggle.addEventListener('click', () => {
+        realSunlight = !realSunlight;
+        applyLighting();
+    });
+}
 
 const radius = 1;
 const geometry = new THREE.SphereGeometry(radius, 128, 64);
@@ -225,6 +276,8 @@ export function latLonToLocal(lat, lon) {
         radius * cosLat * Math.cos(lonRad)
     );
 }
+
+applyLighting();
 
 // Landmark buttons handling
 

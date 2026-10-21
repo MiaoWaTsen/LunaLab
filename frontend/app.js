@@ -97,7 +97,12 @@ async function api(method, path, body = null) {
         let detail = `HTTP ${res.status}`;
         try {
             const err = await res.json();
-            detail = err.detail || JSON.stringify(err);
+            if (Array.isArray(err.detail)) {
+                // FastAPI validation errors: [{loc: [..., field], msg}, ...]
+                detail = err.detail.map(d => `${(d.loc || []).slice(-1)[0] ?? 'input'}: ${d.msg}`).join('; ');
+            } else {
+                detail = err.detail || JSON.stringify(err);
+            }
         } catch (_) {}
         throw new Error(detail);
     }
