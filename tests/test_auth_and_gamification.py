@@ -171,3 +171,74 @@ def test_api_challenge_run_endpoint(client):
     assert "evaluation" in data
     assert "simulation" in data
     assert data["evaluation"]["grade"] in ["S", "A", "B", "C"]
+
+
+def test_session_expires_after_idle_timeout(auth_db, monkeypatch):
+    import sqlite3
+    user = create_user("IdleCommander", "pass1234", db_path=auth_db)
+    token = create_session(user["id"], db_path=auth_db)
+    assert get_user_by_session(token, db_path=auth_db) is not None
+
+    # Force the session into the past → it must be rejected and removed
+    conn = sqlite3.connect(auth_db)
+    conn.execute(
+        "UPDATE user_sessions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE token = ?",
+        (token,),
+    )
+    conn.commit()
+    conn.close()
+
+    assert get_user_by_session(token, db_path=auth_db) is None
+    conn = sqlite3.connect(auth_db)
+    remaining = conn.execute("SELECT COUNT(*) FROM user_sessions").fetchone()[0]
+    conn.close()
+    assert remaining == 0
+
+
+def test_session_use_extends_expiry(auth_db):
+    import sqlite3
+    user = create_user("ActiveCommander", "pass1234", db_path=auth_db)
+    token = create_session(user["id"], db_path=auth_db)
+    conn = sqlite3.connect(auth_db)
+    before = conn.execute("SELECT expires_at FROM user_sessions WHERE token = ?", (token,)).fetchone()[0]
+    conn.close()
+
+    get_user_by_session(token, db_path=auth_db)
+
+    conn = sqlite3.connect(auth_db)
+    after = conn.execute("SELECT expires_at FROM user_sessions WHERE token = ?", (token,)).fetchone()[0]
+    conn.close()
+    assert after >= before
+
+
+def test_challenge_history_requires_login_and_shows_all_users(client):
+    sim = {"simulation": {"impactor_diameter": 8.0, "impact_velocity": 16000.0, "impact_angle": 45.0}}
+
+    a = client.post("/api/auth/register", json={"username": "Alpha", "password": "pass1234"}).json()
+    b = client.post("/api/auth/register", json={"username": "Bravo", "password": "pass1234"}).json()
+    client.post("/api/challenges/apollo_tranquillity/run", json=sim,
+                headers={"Authorization": f"Bearer {a['token']}"})
+    client.post("/api/challenges/apollo_tranquillity/run", json=sim,
+                headers={"Authorization": f"Bearer {b['token']}"})
+
+    assert client.get("/api/challenges/history").status_code == 401
+
+    res = client.get("/api/challenges/history", headers={"Authorization": f"Bearer {a['token']}"})
+    assert res.status_code == 200
+    usernames = {r["username"] for r in res.json()["records"]}
+    assert usernames == {"Alpha", "Bravo"}
+
+
+def test_challenge_run_returns_full_user_profile(client):
+    reg = client.post("/api/auth/register", json={"username": "Charlie", "password": "pass1234"}).json()
+    sim = {"simulation": {"impactor_diameter": 8.0, "impact_velocity": 16000.0, "impact_angle": 45.0}}
+    res = client.post("/api/challenges/apollo_tranquillity/run", json=sim,
+                      headers={"Authorization": f"Bearer {reg['token']}"}).json()
+    assert res["user"]["username"] == "Charlie"
+    assert res["user"]["id"] == reg["user"]["id"]
+
+
+def test_login_page_is_served(client):
+    res = client.get("/login")
+    assert res.status_code == 200
+    assert "Commander Login" in res.text

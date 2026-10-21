@@ -38,7 +38,11 @@ from simulation.crater_model import (
     ImpactParameters,
     run_simulation,
     generate_crater_profile,
+    classify_crater,
     ValidationError,
+    DEFAULT_IMPACTOR_DENSITY,
+    LUNAR_TARGET_DENSITY,
+    LUNAR_GRAVITY,
 )
 from simulation.challenges import (
     CHALLENGES,
@@ -46,7 +50,6 @@ from simulation.challenges import (
     evaluate_challenge,
 )
 from terrain.lunar_surface import get_surface_provider
-from terrain.crater_terrain import generate_elevation_field
 from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
     init_db,
@@ -59,6 +62,7 @@ from database.models import (
     authenticate_user,
     create_session,
     get_user_by_session,
+    get_user_by_id,
     delete_session,
     add_user_xp,
     save_challenge_record,
@@ -190,7 +194,8 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization:
     updated_user = None
 
     if user:
-        updated_user = add_user_xp(user["id"], eval_res["xp_gain"])
+        add_user_xp(user["id"], eval_res["xp_gain"])
+        updated_user = get_user_by_id(user["id"])
 
     rec_id = save_challenge_record({
         "user_id": user_id,
@@ -212,10 +217,11 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, authorization:
 
 @app.get("/api/challenges/history")
 def get_challenge_history(authorization: Optional[str] = Header(None)):
-    """Retrieve recent challenge mission attempts."""
+    """Retrieve recent challenge mission attempts from all users (login required)."""
     user = get_current_user_optional(authorization)
-    user_id = user["id"] if user else None
-    records = get_user_challenge_records(user_id=user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    records = get_user_challenge_records(limit=50)
     return {"records": records}
 
 
@@ -235,9 +241,9 @@ def create_simulation(req: SimulationRequest, authorization: Optional[str] = Hea
         impactor_diameter=req.impactor_diameter,
         impact_velocity=req.impact_velocity,
         impact_angle=req.impact_angle,
-        impactor_density=req.impactor_density or 3000.0,
-        target_density=req.target_density or 2500.0,
-        surface_gravity=req.surface_gravity or 1.62,
+        impactor_density=req.impactor_density or DEFAULT_IMPACTOR_DENSITY,
+        target_density=req.target_density or LUNAR_TARGET_DENSITY,
+        surface_gravity=req.surface_gravity or LUNAR_GRAVITY,
     )
 
     # Fetch elevation if location is provided
@@ -303,13 +309,19 @@ def create_simulation(req: SimulationRequest, authorization: Optional[str] = Hea
         warnings=[{"field": w["field"], "message": w["message"]} for w in result.warnings],
         impact_azimuth=req.impact_azimuth,
         impact_location=impact_loc,
+        crater_type=result.crater_type,
     )
+
+
+def _with_crater_type(exp: dict) -> dict:
+    """Derive crater morphology class (not stored in the database)."""
+    return {**exp, "crater_type": classify_crater(exp["crater_diameter"], exp["surface_gravity"])}
 
 
 @app.get("/api/experiments")
 def list_experiments():
     """Return all experiments, newest first."""
-    experiments = get_all_experiments()
+    experiments = [_with_crater_type(e) for e in get_all_experiments()]
     return {"experiments": experiments}
 
 
@@ -319,7 +331,7 @@ def get_experiment_detail(experiment_id: int):
     exp = get_experiment(experiment_id)
     if exp is None:
         raise HTTPException(status_code=404, detail="Experiment not found.")
-    return exp
+    return _with_crater_type(exp)
 
 
 @app.get("/api/experiments/{experiment_id}/profile")
@@ -328,11 +340,13 @@ def get_experiment_profile(experiment_id: int):
     exp = get_experiment(experiment_id)
     if exp is None:
         raise HTTPException(status_code=404, detail="Experiment not found.")
+    exp = _with_crater_type(exp)
 
     profile = generate_crater_profile(
         crater_diameter=exp["crater_diameter"],
         crater_depth=exp["crater_depth"],
         rim_height=exp["rim_height"],
+        crater_type=exp["crater_type"],
     )
     return profile
 
@@ -344,8 +358,8 @@ def get_experiment_elevation(experiment_id: int):
 
     Orchestration:
         1. Fetch stored crater geometry from the database.
-        2. If impact_angle < 89.5°, delegate to the asymmetric generator.
-           Otherwise, use the symmetric generator.
+        2. Delegate to the oblique-impact generator, which reduces to the
+           symmetric crater for impact angles >= 45°.
         3. Return the field as a JSON response.
 
     The terrain generation is intentionally separated from the crater
@@ -358,25 +372,16 @@ def get_experiment_elevation(experiment_id: int):
     exp = get_experiment(experiment_id)
     if exp is None:
         raise HTTPException(status_code=404, detail="Experiment not found.")
+    exp = _with_crater_type(exp)
 
-    impact_angle = exp.get("impact_angle", 90.0)
-    impact_azimuth = exp.get("impact_azimuth", 0.0) or 0.0
-
-    if impact_angle < 89.5:
-        field = generate_asymmetric_elevation_field(
-            crater_diameter=exp["crater_diameter"],
-            crater_depth=exp["crater_depth"],
-            rim_height=exp["rim_height"],
-            impact_angle=impact_angle,
-            impact_azimuth=impact_azimuth,
-        )
-    else:
-        field = generate_elevation_field(
-            crater_diameter=exp["crater_diameter"],
-            crater_depth=exp["crater_depth"],
-            rim_height=exp["rim_height"],
-        )
-    return field
+    return generate_asymmetric_elevation_field(
+        crater_diameter=exp["crater_diameter"],
+        crater_depth=exp["crater_depth"],
+        rim_height=exp["rim_height"],
+        impact_angle=exp.get("impact_angle", 90.0),
+        impact_azimuth=exp.get("impact_azimuth", 0.0) or 0.0,
+        crater_type=exp["crater_type"],
+    )
 
 
 @app.post("/api/experiments/compare")
@@ -392,10 +397,12 @@ def compare_experiments(req: CompareRequest):
     # Also generate profiles for each
     results = []
     for exp in experiments:
+        exp = _with_crater_type(exp)
         profile = generate_crater_profile(
             crater_diameter=exp["crater_diameter"],
             crater_depth=exp["crater_depth"],
             rim_height=exp["rim_height"],
+            crater_type=exp["crater_type"],
         )
         results.append({**exp, "profile": profile})
 
@@ -468,4 +475,5 @@ def serve_challenge():
 @app.get("/login")
 def serve_login():
     return FileResponse(os.path.join(_FRONTEND_DIR, "login.html"))
+
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Commander login lobby.">
+    <title>LunaLab — Commander Login</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <style>
+        .login-lobby {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: var(--space-md);
+            background: radial-gradient(ellipse 60% 45% at 50% 0%, rgba(124, 140, 255, 0.12) 0%, transparent 70%), var(--bg-primary);
+        }
+        .login-lobby__brand {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-heading);
+            margin-bottom: var(--space-sm);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .login-lobby__tagline {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: var(--space-xl);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div class="login-lobby">
+    <div class="login-lobby__brand"><span class="navbar__brand-icon navbar__brand-icon--lg" aria-hidden="true"></span> LunaLab</div>
+    <p class="login-lobby__tagline">Sign in to access lunar impact simulations and mission challenges.</p>
+
+    <div class="modal-card">
+        <div class="modal-header">
+            <div class="modal-title">Commander Terminal</div>
+        </div>
+        <div class="auth-tabs">
+            <button type="button" class="auth-tab active" id="tab-btn-login" onclick="switchAuthTab('login')">Sign In</button>
+            <button type="button" class="auth-tab" id="tab-btn-register" onclick="switchAuthTab('register')">Register New Commander</button>
+        </div>
+        <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+            <div class="form-group" style="margin-bottom: var(--space-md);">
+                <label class="form-label" for="auth-username">Commander Call-sign (Username)</label>
+                <input type="text" id="auth-username" class="form-input" placeholder="e.g. ApolloCommander" required minlength="2" maxlength="30" autofocus>
+            </div>
+            <div class="form-group" style="margin-bottom: var(--space-lg);">
+                <label class="form-label" for="auth-password">Security Password</label>
+                <input type="password" id="auth-password" class="form-input" placeholder="••••••••" required minlength="4">
+            </div>
+            <div id="auth-error" class="form-error hidden" style="margin-bottom: var(--space-md);"></div>
+            <button type="submit" class="btn btn--primary" id="auth-submit-btn" style="width: 100%;">Sign In</button>
+        </form>
+    </div>
+</div>
+
+<script src="/static/app.js?v=3"></script>
+</body>
+</html>

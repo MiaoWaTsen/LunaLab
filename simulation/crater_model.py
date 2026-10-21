@@ -1,26 +1,52 @@
 """
 Crater Scaling Model — Simulation Module
 
-This module implements a simplified crater scaling law for educational
-and prototype purposes. It is decoupled from the web API and database
-so it can be tested, replaced, or extended independently.
+This module estimates lunar impact crater dimensions from impactor
+parameters.  It is decoupled from the web API and database so it can be
+tested, replaced, or extended independently.
+
+Model summary
+-------------
+1. Transient crater (gravity regime, pi-scaling), Collins, Melosh &
+   Marcus (2005), eq. 21:
+
+       D_tc = 1.161 (ρ_i/ρ_t)^(1/3) L^0.78 v^0.44 g^-0.22 sin^(1/3)θ
+
+2. Simple → complex transition at D_c ≈ 15 km on the Moon (Pike 1977),
+   scaled inversely with surface gravity for other bodies.
+
+3. Final rim-to-rim diameter (Collins et al. 2005, eqs. 22 & 27):
+       simple:  D = 1.25 D_tc
+       complex: D = 1.17 D_tc^1.13 / D_c^0.13
+   The larger of the two is used, which keeps D monotonic in D_tc
+   across the transition.
+
+4. Depth and rim height from fresh lunar crater morphometry (Pike 1977):
+       simple:  d ≈ 0.2 D,  h ≈ 0.036 D
+       complex: d ∝ D^0.301, h ∝ D^0.399  (anchored at D_c for continuity)
+
+5. Excavated (transient cavity) volume, Collins et al. (2005):
+       V_tc ≈ π D_tc³ / (16 √2)
 
 SCIENTIFIC DISCLAIMER:
-    This is a simplified model based on the pi-scaling framework
-    (Schmidt & Housen, 1987; Holsapple, 1993). The implementation
-    uses approximate coefficients suitable for demonstration.
-    It is NOT a validated physical simulation of lunar impact processes.
+    This is a simplified, educational model.  It ignores target strength
+    (relevant for small craters in cohesive regolith), porosity effects,
+    and the detailed physics of very oblique impacts.  It is NOT a
+    validated hydrocode simulation.
 
-References (simplified from):
-    - Schmidt, R.M. & Housen, K.R. (1987). "Some recent advances in
-      the scaling of impact and explosion cratering."
+References:
+    - Collins, G.S., Melosh, H.J. & Marcus, R.A. (2005). "Earth Impact
+      Effects Program." Meteoritics & Planetary Science 40(6), 817–840.
+    - Pike, R.J. (1977). "Size-dependence in the shape of fresh impact
+      craters on the Moon." In Impact and Explosion Cratering, 489–509.
     - Holsapple, K.A. (1993). "The scaling of impact processes in
-      planetary sciences."
+      planetary sciences." Annu. Rev. Earth Planet. Sci. 21, 333–373.
+    - Wieczorek, M.A. et al. (2013). "The crust of the Moon as seen by
+      GRAIL." Science 339, 671–675.
 """
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +54,32 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 LUNAR_GRAVITY = 1.62           # m/s² — surface gravity of the Moon
-LUNAR_TARGET_DENSITY = 2500.0  # kg/m³ — approximate regolith bulk density
+LUNAR_TARGET_DENSITY = 2550.0  # kg/m³ — bulk crustal density from GRAIL (Wieczorek et al. 2013)
 DEFAULT_IMPACTOR_DENSITY = 3000.0  # kg/m³ — stony asteroid default
+
+LUNAR_ESCAPE_VELOCITY = 2380.0     # m/s — minimum natural impact speed on the Moon
+MAX_SOLAR_SYSTEM_IMPACT_VELOCITY = 72_000.0  # m/s — head-on retrograde comet limit
+LUNAR_DIAMETER = 3_474_800.0       # m
+
+# Simple-to-complex transition diameter on the Moon (Pike 1977)
+LUNAR_TRANSITION_DIAMETER = 15_000.0  # m
+# Above this, lunar craters become peak-ring / multi-ring basins
+LUNAR_BASIN_DIAMETER = 300_000.0      # m
+
+
+def transition_diameter(surface_gravity: float = LUNAR_GRAVITY) -> float:
+    """Simple-to-complex transition diameter (m), scaled as 1/g from the Moon."""
+    return LUNAR_TRANSITION_DIAMETER * LUNAR_GRAVITY / surface_gravity
+
+
+def classify_crater(crater_diameter: float, surface_gravity: float = LUNAR_GRAVITY) -> str:
+    """Return 'simple', 'complex' or 'basin' for a final crater diameter (m)."""
+    scale = LUNAR_GRAVITY / surface_gravity
+    if crater_diameter >= LUNAR_BASIN_DIAMETER * scale:
+        return "basin"
+    if crater_diameter > transition_diameter(surface_gravity):
+        return "complex"
+    return "simple"
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +91,7 @@ class ImpactParameters:
     """Input parameters for a single impact simulation."""
     impactor_diameter: float        # metres
     impact_velocity: float          # m/s
-    impact_angle: float             # degrees from vertical (0–90)
+    impact_angle: float             # degrees from horizontal (0–90], 90 = vertical
     impactor_density: float = DEFAULT_IMPACTOR_DENSITY   # kg/m³
     target_density: float = LUNAR_TARGET_DENSITY         # kg/m³
     surface_gravity: float = LUNAR_GRAVITY               # m/s²
@@ -58,6 +108,7 @@ class SimulationResult:
     energy_joules: float            # impact kinetic energy
     model_name: str                 # identifier for the scaling model
     warnings: list                  # any warnings about input ranges
+    crater_type: str = "simple"     # 'simple', 'complex' or 'basin'
 
 
 # ---------------------------------------------------------------------------
@@ -116,17 +167,18 @@ def validate_parameters(params: ImpactParameters) -> list[ParameterWarning]:
             "Impactor diameter < 0.01 m — micro-impacts may involve "
             "different physics (e.g. strength-dominated regime)."
         ))
-    if params.impact_velocity > 100_000:
+    if params.impact_velocity > MAX_SOLAR_SYSTEM_IMPACT_VELOCITY:
         warnings.append(ParameterWarning(
             "impact_velocity",
-            "Impact velocity > 100 km/s — relativistic or extreme "
-            "velocity effects are not modelled."
+            "Impact velocity > 72 km/s — faster than any natural Solar "
+            "System impactor (head-on retrograde comet limit)."
         ))
-    if params.impact_velocity < 1_000:
+    if params.impact_velocity < LUNAR_ESCAPE_VELOCITY:
         warnings.append(ParameterWarning(
             "impact_velocity",
-            "Impact velocity < 1 km/s — low-velocity impacts may be "
-            "in the strength-dominated regime."
+            "Impact velocity < 2.38 km/s (lunar escape velocity) — natural "
+            "impactors cannot hit the Moon this slowly; the scaling law "
+            "assumes hypervelocity impacts."
         ))
     if params.impact_angle < 10:
         warnings.append(ParameterWarning(
@@ -142,75 +194,78 @@ def validate_parameters(params: ImpactParameters) -> list[ParameterWarning]:
 # Core crater scaling calculation
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "Pi-Scaling Prototype Model v0.1"
+MODEL_NAME = "Collins-Pike Lunar Scaling Model v0.2"
 
 
 def run_simulation(params: ImpactParameters) -> SimulationResult:
     """
-    Run a simplified crater-scaling calculation.
-
-    The model uses a pi-scaling approach (gravity regime) with
-    approximate exponents.  The angle dependence uses the widely
-    adopted sin(θ) scaling for the vertical component of velocity.
+    Estimate crater dimensions for a single impact.
 
     Steps:
-        1. Compute impactor kinetic energy.
-        2. Compute the transient crater diameter using pi-scaling.
-        3. Apply angle correction.
-        4. Estimate final crater diameter (≈ 1.2 × transient).
-        5. Estimate depth and rim height from geometric ratios.
+        1. Validate inputs and collect warnings.
+        2. Compute impactor kinetic energy.
+        3. Transient crater diameter (Collins et al. 2005).
+        4. Final crater diameter with simple/complex collapse.
+        5. Depth and rim height from lunar morphometry (Pike 1977).
+        6. Excavated volume of the transient cavity.
 
     Returns a SimulationResult dataclass.
     """
     # 1. Validate
     warnings = validate_parameters(params)
 
-    # 2. Derived quantities
+    # 2. Kinetic energy (½mv²)
     impactor_radius = params.impactor_diameter / 2.0
     impactor_volume = (4.0 / 3.0) * math.pi * impactor_radius ** 3  # m³
     impactor_mass = impactor_volume * params.impactor_density         # kg
+    energy = 0.5 * impactor_mass * params.impact_velocity ** 2       # J
 
-    # Kinetic energy  (½mv²)
-    energy = 0.5 * impactor_mass * params.impact_velocity ** 2       # Joules
-
-    # 3. Pi-scaling — transient crater diameter (gravity regime)
-    #
-    #    D_tc = K₁ · a · (ρ_i / ρ_t)^(1/3) · (v² / (g · a))^μ
-    #
-    #    where a = impactor radius, K₁ ≈ 1.03, μ ≈ 0.22
-    #    (approximate values for competent rock / regolith target)
-
-    K1 = 1.03
-    mu = 0.22
-
+    # 3. Transient crater diameter — gravity-regime pi-scaling.
+    #    sin^(1/3)θ: only the vertical momentum component drives excavation.
     density_ratio = params.impactor_density / params.target_density
-    gravity_term = (params.impact_velocity ** 2) / (
-        params.surface_gravity * impactor_radius
-    )
-
+    angle_factor = math.sin(math.radians(params.impact_angle)) ** (1.0 / 3.0)
     transient_diameter = (
-        K1
-        * params.impactor_diameter
-        * (density_ratio ** (1.0 / 3.0))
-        * (gravity_term ** mu)
+        1.161
+        * density_ratio ** (1.0 / 3.0)
+        * params.impactor_diameter ** 0.78
+        * params.impact_velocity ** 0.44
+        * params.surface_gravity ** -0.22
+        * angle_factor
     )
 
-    # 4. Angle correction — sin(θ) scaling on velocity
-    angle_rad = math.radians(params.impact_angle)
-    angle_factor = math.sin(angle_rad) ** (2.0 * mu)
-    transient_diameter *= angle_factor
+    # 4. Final diameter — wall collapse widens the cavity.
+    d_c = transition_diameter(params.surface_gravity)
+    simple_diameter = 1.25 * transient_diameter
+    complex_diameter = 1.17 * transient_diameter ** 1.13 / d_c ** 0.13
+    final_diameter = max(simple_diameter, complex_diameter)
+    crater_type = classify_crater(final_diameter, params.surface_gravity)
 
-    # 5. Final (simple) crater diameter ≈ 1.2 × transient
-    final_diameter = 1.2 * transient_diameter
+    # 5. Depth and rim height (fresh lunar craters, Pike 1977).
+    #    Complex-crater power laws are anchored to the simple values at D_c
+    #    so the curves join without a jump.
+    if final_diameter <= d_c:
+        crater_depth = 0.2 * final_diameter
+        rim_height = 0.036 * final_diameter
+    else:
+        size_ratio = final_diameter / d_c
+        crater_depth = 0.2 * d_c * size_ratio ** 0.301
+        rim_height = 0.036 * d_c * size_ratio ** 0.399
 
-    # 6. Depth and rim from typical ratios
-    #    Simple craters: depth ≈ D / 5,  rim_height ≈ D / 20
-    crater_depth = final_diameter / 5.0
-    rim_height = final_diameter / 20.0
+    # 6. Excavated volume ≈ transient cavity volume (Collins et al. 2005)
+    ejecta_volume = math.pi * transient_diameter ** 3 / (16.0 * math.sqrt(2.0))
 
-    # 7. Ejecta volume (rough hemisphere bowl approximation)
-    crater_radius = final_diameter / 2.0
-    ejecta_volume = (2.0 / 3.0) * math.pi * crater_radius ** 2 * crater_depth
+    if crater_type == "basin":
+        warnings.append(ParameterWarning(
+            "crater_diameter",
+            "Final crater > 300 km — this is a multi-ring impact basin "
+            "(like Orientale); simple scaling laws are only indicative here."
+        ))
+    if final_diameter > LUNAR_DIAMETER:
+        warnings.append(ParameterWarning(
+            "crater_diameter",
+            "Predicted crater is larger than the Moon itself — an impact "
+            "this energetic would disrupt the Moon rather than form a crater."
+        ))
 
     return SimulationResult(
         crater_diameter=round(final_diameter, 4),
@@ -221,6 +276,7 @@ def run_simulation(params: ImpactParameters) -> SimulationResult:
         energy_joules=round(energy, 2),
         model_name=MODEL_NAME,
         warnings=[w.to_dict() for w in warnings],
+        crater_type=crater_type,
     )
 
 
@@ -233,40 +289,21 @@ def generate_crater_profile(
     crater_depth: float,
     rim_height: float,
     num_points: int = 200,
+    crater_type: str = "simple",
 ) -> dict:
     """
-    Generate (x, y) arrays for a simplified crater cross-section.
+    Generate (x, y) arrays for a crater cross-section.
 
-    The profile is symmetric: a raised rim, parabolic bowl,
-    and flat surrounding terrain at y = 0.
+    The shape comes from terrain.crater_terrain.radial_elevation, so the
+    1-D profile and the 2-D terrain map always agree.
 
     Returns {"x": [...], "y": [...]}.
     """
+    import numpy as np
+    from terrain.crater_terrain import radial_elevation, DOMAIN_HALF_FACTOR
+
     radius = crater_diameter / 2.0
-    rim_width = radius * 0.3          # rim extends ~30% beyond the radius
-    total_half_width = radius + rim_width * 2.5
-
-    xs: list[float] = []
-    ys: list[float] = []
-
-    for i in range(num_points):
-        x = -total_half_width + (2 * total_half_width) * i / (num_points - 1)
-        abs_x = abs(x)
-
-        if abs_x <= radius:
-            # Parabolic bowl: y = -depth · (1 - (x/R)²)
-            y = -crater_depth * (1.0 - (abs_x / radius) ** 2)
-        elif abs_x <= radius + rim_width:
-            # Rim bump — Gaussian-ish raised lip
-            t = (abs_x - radius) / rim_width
-            y = rim_height * math.exp(-3.0 * t ** 2)
-        else:
-            # Flat terrain
-            y = 0.0
-
-        xs.append(round(x, 4))
-        ys.append(round(y, 4))
-
-    return {"x": xs, "y": ys}
-
-
+    half_width = radius * DOMAIN_HALF_FACTOR
+    xs = np.linspace(-half_width, half_width, num_points)
+    ys = radial_elevation(np.abs(xs) / radius, crater_depth, rim_height, crater_type)
+    return {"x": xs.round(4).tolist(), "y": ys.round(4).tolist()}

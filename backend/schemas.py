@@ -22,13 +22,13 @@ class SimulationRequest(BaseModel):
         ..., gt=0, description="Impact velocity in m/s"
     )
     impact_angle: float = Field(
-        ..., gt=0, le=90, description="Impact angle in degrees from vertical (0–90]"
+        ..., gt=0, le=90, description="Impact angle in degrees from horizontal (0–90], 90 = vertical"
     )
     impactor_density: Optional[float] = Field(
         None, gt=0, description="Impactor density in kg/m³ (default: 3000)"
     )
     target_density: Optional[float] = Field(
-        None, gt=0, description="Target surface density in kg/m³ (default: 2500)"
+        None, gt=0, description="Target surface density in kg/m³ (default: 2550, lunar crust)"
     )
     surface_gravity: Optional[float] = Field(
         None, gt=0, description="Surface gravity in m/s² (default: 1.62 — Moon)"
@@ -123,6 +123,7 @@ class SimulationResponse(BaseModel):
     warnings: list[WarningItem] = []
     impact_azimuth: float = 0.0
     impact_location: Optional[ImpactLocation] = None
+    crater_type: str = "simple"
 
 
 class ExperimentDetail(BaseModel):

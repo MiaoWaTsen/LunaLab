@@ -4,7 +4,7 @@ LunaLab — Application Entry Point
 Usage:
     python main.py
 
-Starts the FastAPI server with uvicorn on http://localhost:8000
+Starts the FastAPI server with uvicorn on http://localhost:8765
 """
 
 import uvicorn

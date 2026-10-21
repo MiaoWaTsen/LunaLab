@@ -41,6 +41,35 @@ function setStoredUser(user) {
 }
 
 // ---------------------------------------------------------------------------
+// Login guard — every page except /login requires a session
+// ---------------------------------------------------------------------------
+
+const LOGIN_PATH = '/login';
+
+function isLoginPage() {
+    return window.location.pathname === LOGIN_PATH;
+}
+
+function redirectToLogin() {
+    if (isLoginPage()) return;
+    const next = window.location.pathname + window.location.search;
+    window.location.replace(`${LOGIN_PATH}?next=${encodeURIComponent(next)}`);
+}
+
+// Only allow same-site relative paths as the post-login destination
+function getPostLoginTarget() {
+    const next = new URLSearchParams(window.location.search).get('next');
+    if (next && next.startsWith('/') && !next.startsWith('//') && next !== LOGIN_PATH) {
+        return next;
+    }
+    return '/';
+}
+
+if (!isLoginPage() && !getAuthToken()) {
+    redirectToLogin();
+}
+
+// ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 
@@ -55,6 +84,14 @@ async function api(method, path, body = null) {
     if (body) opts.body = JSON.stringify(body);
 
     const res = await fetch(`${API_BASE}${path}`, opts);
+
+    // Session expired or revoked → back to the login lobby
+    // (login/register return 401 for bad credentials, so skip those)
+    if (res.status === 401 && !path.startsWith('/api/auth/login') && !path.startsWith('/api/auth/register')) {
+        setAuthToken(null);
+        setStoredUser(null);
+        redirectToLogin();
+    }
 
     if (!res.ok) {
         let detail = `HTTP ${res.status}`;
@@ -107,13 +144,22 @@ function showToast(message, type = 'success', duration = 3500) {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
+const _SUPERSCRIPT = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+
+// 3.23e+13 → "3.23 × 10¹³"
+function formatScientific(n, decimals = 2) {
+    const [mantissa, exp] = n.toExponential(decimals).split('e');
+    const power = String(parseInt(exp, 10)).replace(/./g, c => _SUPERSCRIPT[c] ?? c);
+    return `${mantissa} × 10${power}`;
+}
+
 function formatNumber(value, decimals = 2) {
     if (value === null || value === undefined) return '—';
     const n = Number(value);
     if (Number.isNaN(n)) return '—';
 
-    if (Math.abs(n) >= 1e6) return n.toExponential(decimals);
-    if (Math.abs(n) < 0.01 && n !== 0) return n.toExponential(decimals);
+    if (Math.abs(n) >= 1e6) return formatScientific(n, decimals);
+    if (Math.abs(n) < 0.01 && n !== 0) return formatScientific(n, decimals);
 
     return n.toLocaleString(undefined, {
         minimumFractionDigits: 0,
@@ -133,7 +179,17 @@ function formatDate(isoString) {
     });
 }
 
+// Lengths in metres → "305 m" / "86.4 km"
+function formatLength(metres) {
+    if (metres === null || metres === undefined || Number.isNaN(Number(metres))) return '—';
+    const m = Number(metres);
+    if (Math.abs(m) >= 10_000) return formatNumber(m / 1000, 1) + ' km';
+    if (Math.abs(m) >= 100) return formatNumber(m, 0) + ' m';
+    return formatNumber(m, 2) + ' m';
+}
+
 function formatEnergy(joules) {
+    if (joules >= 1e21) return formatScientific(joules) + ' J';
     if (joules >= 1e18) return (joules / 1e18).toFixed(2) + ' EJ';
     if (joules >= 1e15) return (joules / 1e15).toFixed(2) + ' PJ';
     if (joules >= 1e12) return (joules / 1e12).toFixed(2) + ' TJ';
@@ -148,31 +204,62 @@ function formatEnergy(joules) {
 // ---------------------------------------------------------------------------
 
 const PLOTLY_LAYOUT_DEFAULTS = {
-    paper_bgcolor: '#111827',
-    plot_bgcolor:  '#111827',
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor:  'rgba(0,0,0,0)',
     font: {
         family: 'Inter, sans-serif',
-        color:  '#94a3b8',
+        color:  '#8b95a7',
         size:   12,
     },
     margin: { t: 40, r: 30, b: 50, l: 60 },
     xaxis: {
-        gridcolor:  'rgba(42, 49, 80, 0.5)',
-        zerolinecolor: 'rgba(42, 49, 80, 0.8)',
-        linecolor: 'rgba(42, 49, 80, 0.8)',
+        gridcolor:  'rgba(148, 163, 184, 0.08)',
+        zerolinecolor: 'rgba(148, 163, 184, 0.2)',
+        linecolor: 'rgba(148, 163, 184, 0.15)',
     },
     yaxis: {
-        gridcolor:  'rgba(42, 49, 80, 0.5)',
-        zerolinecolor: 'rgba(42, 49, 80, 0.8)',
-        linecolor: 'rgba(42, 49, 80, 0.8)',
+        gridcolor:  'rgba(148, 163, 184, 0.08)',
+        zerolinecolor: 'rgba(148, 163, 184, 0.2)',
+        linecolor: 'rgba(148, 163, 184, 0.15)',
     },
 };
+
+/**
+ * Lunar terrain colour scale anchored so that elevation 0 (undisturbed
+ * surface) is always neutral regolith grey: cool shadowed tones below,
+ * warm sunlit tones above.
+ */
+function terrainColorscale(field) {
+    const zmin = Math.min(field.z_min, -1e-9);
+    const zmax = Math.max(field.z_max, 1e-9);
+    const zero = -zmin / (zmax - zmin);
+    return [
+        [0,                          '#16213a'],
+        [zero * 0.45,                '#2c4670'],
+        [zero * 0.85,                '#6b7f99'],
+        [zero,                       '#a3a9b2'],
+        [zero + (1 - zero) * 0.35,   '#cfc3a6'],
+        [1,                          '#f3e2b3'],
+    ];
+}
 
 const PLOTLY_CONFIG = {
     responsive: true,
     displayModeBar: true,
     modeBarButtonsToRemove: ['lasso2d', 'select2d'],
     displaylogo: false,
+};
+
+// Crater morphology classes returned by the API
+const CRATER_TYPE_LABELS = {
+    simple:  'Simple crater',
+    complex: 'Complex crater',
+    basin:   'Impact basin',
+};
+const CRATER_TYPE_HINTS = {
+    simple:  'Bowl-shaped crater, depth ≈ 1/5 of diameter (lunar craters < ~15 km).',
+    complex: 'Walls collapsed into a flat floor with a central peak (lunar craters > ~15 km).',
+    basin:   'Multi-ring basin with an inner peak ring (lunar craters > ~300 km).',
 };
 
 // Colour palette for comparison charts
@@ -273,7 +360,7 @@ function openAuthModal(initialTab = 'login') {
             <div class="modal-card">
                 <div class="modal-header">
                     <div class="modal-title">
-                        <span>👨‍🚀</span> Commander Terminal
+                        Commander Terminal
                     </div>
                     <button class="modal-close" onclick="closeAuthModal()">✕</button>
                 </div>
@@ -292,7 +379,7 @@ function openAuthModal(initialTab = 'login') {
                     </div>
                     <div id="auth-error" class="form-error hidden" style="margin-bottom: var(--space-md);"></div>
                     <button type="submit" class="btn btn--primary" id="auth-submit-btn" style="width: 100%;">
-                        ${initialTab === 'login' ? '🔑 Sign In' : '✦ Create Commander Profile'}
+                        ${initialTab === 'login' ? 'Sign In' : 'Create Account'}
                     </button>
                 </form>
             </div>
@@ -302,9 +389,9 @@ function openAuthModal(initialTab = 'login') {
             if (e.target === modal) closeAuthModal();
         });
     } else {
-        switchAuthTab(initialTab);
         modal.classList.remove('hidden');
     }
+    switchAuthTab(initialTab);
     document.getElementById('auth-username').focus();
 }
 
@@ -325,11 +412,11 @@ function switchAuthTab(tab) {
     if (tab === 'login') {
         if (btnLogin) btnLogin.classList.add('active');
         if (btnReg) btnReg.classList.remove('active');
-        if (submitBtn) submitBtn.textContent = '🔑 Sign In';
+        if (submitBtn) submitBtn.textContent = 'Sign In';
     } else {
         if (btnReg) btnReg.classList.add('active');
         if (btnLogin) btnLogin.classList.remove('active');
-        if (submitBtn) submitBtn.textContent = '✦ Create Commander Profile';
+        if (submitBtn) submitBtn.textContent = 'Create Account';
     }
 }
 
@@ -350,6 +437,10 @@ async function handleAuthSubmit(e) {
 
         setAuthToken(res.token);
         setStoredUser(res.user);
+        if (isLoginPage()) {
+            window.location.replace(getPostLoginTarget());
+            return;
+        }
         closeAuthModal();
         updateNavUser();
         showToast(`Welcome aboard, Commander ${res.user.username}!`, 'success');
@@ -361,7 +452,7 @@ async function handleAuthSubmit(e) {
         errEl.classList.remove('hidden');
     } finally {
         btn.disabled = false;
-        btn.textContent = _currentAuthTab === 'login' ? '🔑 Sign In' : '✦ Create Commander Profile';
+        btn.textContent = _currentAuthTab === 'login' ? 'Sign In' : 'Create Account';
     }
 }
 
@@ -371,9 +462,13 @@ async function logoutCommander() {
     } catch (_) {}
     setAuthToken(null);
     setStoredUser(null);
-    updateNavUser();
-    showToast('Logged out of command console.', 'info');
-    window.dispatchEvent(new CustomEvent('auth-changed', { detail: null }));
+    window.location.replace(LOGIN_PATH);
+}
+
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
 }
 
 function updateNavUser() {
@@ -383,9 +478,8 @@ function updateNavUser() {
 
     if (user) {
         container.innerHTML = `
-            <div class="user-badge" title="${user.rank_title}">
-                <span style="font-size: 0.95rem;">👨‍🚀</span>
-                <span class="user-badge__name">${user.username}</span>
+            <div class="user-badge" title="${escapeHtml(user.rank_title)}">
+                <span class="user-badge__name">${escapeHtml(user.username)}</span>
                 <span class="user-badge__rank">Lv.${user.level}</span>
                 <span class="user-badge__xp">${user.xp} XP</span>
                 <button type="button" class="btn btn--ghost btn--sm" onclick="logoutCommander()" title="Logout" style="padding: 2px 6px; font-size: 0.75rem; color: var(--text-muted);">
@@ -396,7 +490,7 @@ function updateNavUser() {
     } else {
         container.innerHTML = `
             <button type="button" class="btn btn--secondary btn--sm" onclick="openAuthModal('login')" style="font-size: 0.8rem; padding: 4px 10px;">
-                🔑 Sign In / Register
+                Sign In
             </button>
         `;
     }
@@ -422,9 +516,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const me = await apiGet('/api/auth/me');
             setStoredUser(me);
+            if (isLoginPage()) {
+                window.location.replace(getPostLoginTarget());
+                return;
+            }
         } catch (_) {
             setAuthToken(null);
             setStoredUser(null);
+            redirectToLogin();
         }
     }
     updateNavUser();

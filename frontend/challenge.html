@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Gamified Lunar Impact Missions. Challenge real-world crater replication, achieve scientific grades, and earn research commander ranks.">
     <title>LunaLab — Mission Challenges</title>
-    <link rel="stylesheet" href="/static/styles.css?v=2">
+    <link rel="stylesheet" href="/static/styles.css?v=3">
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
@@ -15,14 +15,13 @@
     <nav class="navbar">
         <div class="container navbar__inner">
             <a href="/" class="navbar__brand">
-                <span class="navbar__brand-icon">🌑</span>
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
                 LunaLab
             </a>
             <ul class="navbar__links">
-                <li><a href="/" class="navbar__link">Dashboard</a></li>
-                <li><a href="/moon" class="navbar__link">3D Moon</a></li>
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
                 <li><a href="/experiment" class="navbar__link">Experiment</a></li>
-                <li><a href="/challenge" class="navbar__link navbar__link--active">🎮 Challenges</a></li>
+                <li><a href="/challenge" class="navbar__link navbar__link--active">Challenges</a></li>
                 <li><a href="/history" class="navbar__link">History</a></li>
             </ul>
         </div>
@@ -87,7 +86,7 @@
 
                     <div class="form-group">
                         <label class="form-label" for="c-angle">
-                            Impact Angle <span class="form-label__unit">(° from vertical)</span>
+                            Impact Angle <span class="form-label__unit">(° from horizontal)</span>
                         </label>
                         <input type="number" id="c-angle" class="form-input" step="any" min="1" max="90" required>
                     </div>
@@ -129,7 +128,7 @@
                 <div class="results-grid" style="margin-bottom: var(--space-xl);">
                     <div class="result-metric">
                         <div class="result-metric__value" id="eval-crater-diam">—</div>
-                        <div class="result-metric__label">Resulting Diameter (m)</div>
+                        <div class="result-metric__label">Resulting Diameter</div>
                     </div>
                     <div class="result-metric">
                         <div class="result-metric__value" id="eval-diam-err">—</div>
@@ -137,7 +136,7 @@
                     </div>
                     <div class="result-metric">
                         <div class="result-metric__value" id="eval-crater-depth">—</div>
-                        <div class="result-metric__label">Resulting Depth (m)</div>
+                        <div class="result-metric__label">Resulting Depth</div>
                     </div>
                     <div class="result-metric">
                         <div class="result-metric__value" id="eval-depth-err">—</div>
@@ -162,6 +161,28 @@
                 <div class="chart-container chart-container--tall" id="chart-challenge-terrain"></div>
             </div>
         </section>
+
+        <!-- All commanders' mission records -->
+        <section class="section">
+            <div class="card" style="padding: var(--space-md) var(--space-xl);">
+                <h3 style="font-size: 1.05rem; margin-bottom: var(--space-md); color: #e2e8f0;">📜 Mission Records — All Commanders</h3>
+                <div id="records-empty" class="text-center" style="color: var(--text-muted);">Loading records…</div>
+                <table class="data-table hidden" id="records-table">
+                    <thead>
+                        <tr>
+                            <th>Commander</th>
+                            <th>Mission</th>
+                            <th>Grade</th>
+                            <th>Score</th>
+                            <th>⌀ Error</th>
+                            <th>Depth Error</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="records-body"></tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <footer class="footer">
@@ -171,7 +192,7 @@
     </footer>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 <script>
 let challenges = [];
 let currentChallenge = null;
@@ -225,10 +246,10 @@ function renderChallengeCards() {
             </div>
             <div>
                 <div style="font-size: 0.78rem; font-family: var(--font-mono); color: #38bdf8; margin-bottom: var(--space-md);">
-                    Target: ${ch.target_diameter ? formatNumber(ch.target_diameter) + ' m ⌀' : 'Special Energy Threshold'}
+                    Target ⌀ ${ch.target_diameter ? formatLength(ch.target_diameter) : 'Special Energy Threshold'}
                 </div>
-                <button type="button" class="btn btn--primary" style="width: 100%; font-size: 0.82rem;" onclick="selectChallenge('${ch.id}')">
-                    🎯 Select Mission
+                <button type="button" class="btn btn--secondary" style="width: 100%; font-size: 0.82rem;" onclick="selectChallenge('${ch.id}')">
+                    Select Mission
                 </button>
             </div>
         `;
@@ -257,11 +278,11 @@ function selectChallenge(chId) {
 
     // Populate suggested defaults
     if (chId === 'tycho_crater') {
-        document.getElementById('c-diameter').value = 2500;
+        document.getElementById('c-diameter').value = 4000;
         document.getElementById('c-velocity').value = 16000;
         document.getElementById('c-angle').value = 45;
     } else if (chId === 'grazing_skimmer') {
-        document.getElementById('c-diameter').value = 120;
+        document.getElementById('c-diameter').value = 50;
         document.getElementById('c-velocity').value = 18000;
         document.getElementById('c-angle').value = 15;
     } else if (chId === 'dinosaur_extinction') {
@@ -287,7 +308,8 @@ document.getElementById('challenge-form').addEventListener('submit', async (e) =
     const diameter = parseFloat(document.getElementById('c-diameter').value);
     const velocity = parseFloat(document.getElementById('c-velocity').value);
     const angle = parseFloat(document.getElementById('c-angle').value);
-    const azimuth = parseFloat(document.getElementById('c-azimuth').value) || 45;
+    const azimuthVal = parseFloat(document.getElementById('c-azimuth').value);
+    const azimuth = Number.isNaN(azimuthVal) ? 45 : azimuthVal;
 
     const btn = document.getElementById('btn-run-challenge');
     btn.disabled = true;
@@ -301,8 +323,6 @@ document.getElementById('challenge-form').addEventListener('submit', async (e) =
                 impact_angle: angle,
                 impact_azimuth: azimuth,
                 impactor_density: 3000,
-                target_density: 2500,
-                surface_gravity: 1.62
             }
         };
 
@@ -326,6 +346,7 @@ document.getElementById('challenge-form').addEventListener('submit', async (e) =
         ]);
 
         displayEvaluationResults(evaluation, simulation, profile, elevation);
+        loadChallengeRecords();
         showToast(`Mission evaluated! Grade: ${evaluation.grade} (${evaluation.score} pts)`, evaluation.passed ? 'success' : 'info');
     } catch (err) {
         showToast('Challenge simulation failed: ' + err.message, 'error');
@@ -347,9 +368,9 @@ function displayEvaluationResults(evaluation, simulation, profile, elevation) {
     document.getElementById('eval-xp-badge').textContent = `+${evaluation.xp_gain} Research XP Awarded`;
     document.getElementById('eval-feedback').textContent = evaluation.feedback;
 
-    document.getElementById('eval-crater-diam').textContent = formatNumber(simulation.crater_diameter);
+    document.getElementById('eval-crater-diam').textContent = formatLength(simulation.crater_diameter);
     document.getElementById('eval-diam-err').textContent = evaluation.diameter_error_pct + '%';
-    document.getElementById('eval-crater-depth').textContent = formatNumber(simulation.crater_depth);
+    document.getElementById('eval-crater-depth').textContent = formatLength(simulation.crater_depth);
     document.getElementById('eval-depth-err').textContent = evaluation.depth_error_pct + '%';
     document.getElementById('eval-energy').textContent = formatEnergy(simulation.energy_joules);
     document.getElementById('eval-ejecta').textContent = formatNumber(simulation.ejecta_volume);
@@ -369,7 +390,7 @@ function renderChallengeProfile(profile) {
         y: profile.y,
         type: 'scatter',
         mode: 'lines',
-        line: { color: '#22d3ee', width: 2.5 },
+        line: { color: '#67d4e8', width: 2.5 },
         fill: 'tozeroy',
         fillcolor: 'rgba(34, 211, 238, 0.12)',
         name: 'Profile',
@@ -392,15 +413,7 @@ function renderChallengeTerrain(field) {
         x: field.x,
         y: field.y,
         z: field.z,
-        colorscale: [
-            [0.00, '#312e81'],
-            [0.25, '#1e3a8a'],
-            [0.45, '#0284c7'],
-            [0.50, '#0f172a'],
-            [0.55, '#0d9488'],
-            [0.75, '#fbbf24'],
-            [1.00, '#f97316'],
-        ],
+        colorscale: terrainColorscale(field),
         showscale: true,
         colorbar: {
             title: { text: 'm', font: { color: '#94a3b8', size: 11 } },
@@ -420,9 +433,46 @@ function renderChallengeTerrain(field) {
     Plotly.newPlot('chart-challenge-terrain', [trace], layout, PLOTLY_CONFIG);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// ---------------------------------------------------------------------------
+// Mission records (all users, login required)
+// ---------------------------------------------------------------------------
+async function loadChallengeRecords() {
+    const emptyEl = document.getElementById('records-empty');
+    const table = document.getElementById('records-table');
+    const body = document.getElementById('records-body');
+    try {
+        const res = await apiGet('/api/challenges/history');
+        const records = res.records || [];
+        if (records.length === 0) {
+            emptyEl.textContent = 'No mission attempts yet.';
+            emptyEl.classList.remove('hidden');
+            table.classList.add('hidden');
+            return;
+        }
+        body.innerHTML = records.map(r => {
+            const ch = challenges.find(c => c.id === r.challenge_id);
+            return `
+                <tr>
+                    <td>${escapeHtml(r.username || 'Anonymous')}</td>
+                    <td>${escapeHtml(ch ? ch.title : r.challenge_id)}</td>
+                    <td><span class="grade-badge grade-badge--${escapeHtml(r.grade.toLowerCase())}" style="width: 28px; height: 28px; font-size: 0.85rem; margin: 0; border-width: 2px; box-shadow: none;">${escapeHtml(r.grade)}</span></td>
+                    <td class="data-table__mono">${formatNumber(r.score, 1)}</td>
+                    <td class="data-table__mono">${formatNumber(r.diameter_error_pct)}%</td>
+                    <td class="data-table__mono">${formatNumber(r.depth_error_pct)}%</td>
+                    <td>${formatDate(r.created_at)}</td>
+                </tr>`;
+        }).join('');
+        emptyEl.classList.add('hidden');
+        table.classList.remove('hidden');
+    } catch (err) {
+        emptyEl.textContent = 'Failed to load records: ' + err.message;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
     updateSoundButton();
-    loadChallenges();
+    await loadChallenges();
+    loadChallengeRecords();
 });
 </script>
 </body>

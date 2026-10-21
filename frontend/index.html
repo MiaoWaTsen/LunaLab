@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Lunar Impact Simulation & Experiment Analysis Platform. Run crater-scaling simulations, visualize results, and compare experiments.">
     <title>LunaLab — Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=3">
 </head>
 <body>
 <div class="app-wrapper">
@@ -14,13 +14,13 @@
     <nav class="navbar">
         <div class="container navbar__inner">
             <a href="/" class="navbar__brand">
-                <span class="navbar__brand-icon">🌑</span>
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
                 LunaLab
             </a>
             <ul class="navbar__links">
                 <li><a href="/" class="navbar__link">3D Moon</a></li>
                 <li><a href="/experiment" class="navbar__link">Experiment</a></li>
-                <li><a href="/challenge" class="navbar__link">🎮 Challenges</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
                 <li><a href="/history" class="navbar__link">History</a></li>
             </ul>
         </div>
@@ -88,13 +88,13 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model · Built for Software Engineering
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
         </div>
     </footer>
 
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 <script>
 (async function () {
     const loading = document.getElementById('recent-loading');

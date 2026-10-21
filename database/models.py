@@ -7,7 +7,7 @@ It is decoupled from the simulation logic and the web API.
 
 import sqlite3
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -21,6 +21,9 @@ _DEFAULT_DB_PATH = os.path.join(
 )
 
 DB_PATH = os.environ.get("LUNALAB_DB_PATH", _DEFAULT_DB_PATH)
+
+# Session idle timeout: a token expires after this many minutes without use.
+SESSION_TTL_MINUTES = int(os.environ.get("LUNALAB_SESSION_TTL_MINUTES", "30"))
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +70,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     token           TEXT    PRIMARY KEY,
     user_id         INTEGER NOT NULL,
     created_at      TEXT    NOT NULL,
+    expires_at      TEXT,
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
@@ -153,7 +157,14 @@ def init_db(db_path: Optional[str] = None) -> None:
         conn.execute("ALTER TABLE experiments ADD COLUMN surface_elevation REAL;")
     if "user_id" not in columns:
         conn.execute("ALTER TABLE experiments ADD COLUMN user_id INTEGER;")
-        
+
+    cursor = conn.execute("PRAGMA table_info(user_sessions);")
+    session_columns = [row["name"] for row in cursor.fetchall()]
+    if "expires_at" not in session_columns:
+        # Pre-existing sessions have no expiry, so drop them (users log in again).
+        conn.execute("ALTER TABLE user_sessions ADD COLUMN expires_at TEXT;")
+        conn.execute("DELETE FROM user_sessions;")
+
     conn.commit()
     conn.close()
 
@@ -331,14 +342,18 @@ def get_user_by_id(user_id: int, db_path: Optional[str] = None) -> Optional[dict
     return dict(row)
 
 
+def _session_expiry(now: datetime) -> str:
+    return (now + timedelta(minutes=SESSION_TTL_MINUTES)).isoformat()
+
+
 def create_session(user_id: int, db_path: Optional[str] = None) -> str:
     """Generate session token and store in user_sessions."""
     token = secrets.token_urlsafe(32)
-    created_at = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
     conn = get_connection(db_path)
     conn.execute(
-        "INSERT INTO user_sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-        (token, user_id, created_at),
+        "INSERT INTO user_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        (token, user_id, now.isoformat(), _session_expiry(now)),
     )
     conn.commit()
     conn.close()
@@ -346,23 +361,47 @@ def create_session(user_id: int, db_path: Optional[str] = None) -> str:
 
 
 def get_user_by_session(token: str, db_path: Optional[str] = None) -> Optional[dict]:
-    """Lookup user by session token."""
+    """
+    Lookup user by session token.
+
+    Expired sessions are deleted and return None.  A valid session has its
+    expiry pushed forward, so it only times out after SESSION_TTL_MINUTES
+    of inactivity.
+    """
     if not token:
         return None
+    now = datetime.now(timezone.utc)
     conn = get_connection(db_path)
     row = conn.execute(
         """
-        SELECT u.id, u.username, u.created_at, u.xp, u.level, u.rank_title
+        SELECT u.id, u.username, u.created_at, u.xp, u.level, u.rank_title,
+               s.expires_at AS session_expires_at
         FROM user_sessions s
         JOIN users u ON s.user_id = u.id
         WHERE s.token = ?
         """,
         (token,),
     ).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         return None
-    return dict(row)
+
+    expires_at = row["session_expires_at"]
+    if not expires_at or datetime.fromisoformat(expires_at) <= now:
+        conn.execute("DELETE FROM user_sessions WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+        return None
+
+    conn.execute(
+        "UPDATE user_sessions SET expires_at = ? WHERE token = ?",
+        (_session_expiry(now), token),
+    )
+    conn.commit()
+    conn.close()
+    user = dict(row)
+    user.pop("session_expires_at")
+    return user
 
 
 def delete_session(token: str, db_path: Optional[str] = None) -> bool:
@@ -384,7 +423,7 @@ def add_user_xp(user_id: int, xp_gain: int, db_path: Optional[str] = None) -> di
         raise ValueError("User not found.")
 
     new_xp = max(0, row["xp"] + xp_gain)
-    # Level formula: Level 1 = 0-100 XP, Level 2 = 100-250 XP, etc. Level = 1 + floor(sqrt(xp / 100))
+    # Level = 1 + floor(sqrt(xp / 100)): Lv1 < 100 XP, Lv2 < 400, Lv3 < 900, ...
     import math
     new_level = max(1, 1 + int(math.isqrt(new_xp // 100)))
     new_rank = get_rank_for_level(new_level)
@@ -430,16 +469,21 @@ def save_challenge_record(data: dict, db_path: Optional[str] = None) -> int:
 
 
 def get_user_challenge_records(user_id: Optional[int] = None, limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
-    """Retrieve challenge history records."""
+    """Retrieve challenge history records (all users when user_id is None)."""
     conn = get_connection(db_path)
+    base_sql = """
+        SELECT r.*, u.username
+        FROM challenge_records r
+        LEFT JOIN users u ON r.user_id = u.id
+    """
     if user_id is not None:
         rows = conn.execute(
-            "SELECT * FROM challenge_records WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            base_sql + " WHERE r.user_id = ? ORDER BY r.created_at DESC LIMIT ?",
             (user_id, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM challenge_records ORDER BY created_at DESC LIMIT ?",
+            base_sql + " ORDER BY r.created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     conn.close()

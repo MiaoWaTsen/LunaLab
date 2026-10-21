@@ -8,7 +8,7 @@
 
 ## Overview
 
-LunaLab is a modular, web-based platform for simulating lunar impact craters using a simplified **Pi-Scaling Crater Model**. Users can:
+LunaLab is a modular, web-based platform for simulating lunar impact craters using a **lunar crater scaling model** (Collins et al. 2005 pi-scaling + Pike 1977 lunar morphometry). Users can:
 
 1. **Run Simulations** — Input impactor parameters and compute crater dimensions
 2. **Visualise Results** — Interactive Plotly charts showing crater profiles and parameter comparisons
@@ -47,7 +47,7 @@ LunaLab/
 │
 ├── simulation/              # Simulation engine (independent)
 │   ├── __init__.py
-│   └── crater_model.py      # Pi-Scaling crater calculations
+│   └── crater_model.py      # Crater scaling (Collins/Pike)
 │
 ├── database/                # Data persistence layer
 │   ├── __init__.py
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 python3 main.py
 ```
 
-The server starts at **http://localhost:8000**.
+The server starts at **http://localhost:8765**.
 
 The frontend is served from the same origin — no separate frontend server needed.
 
@@ -129,7 +129,7 @@ Run a new simulation and save it as an experiment.
   "impact_velocity": 20000,
   "impact_angle": 45,
   "impactor_density": 3000,
-  "target_density": 2500,
+  "target_density": 2550,
   "surface_gravity": 1.62
 }
 ```
@@ -140,13 +140,14 @@ Only `impactor_diameter`, `impact_velocity`, and `impact_angle` are required. Ot
 ```json
 {
   "experiment_id": 1,
-  "crater_diameter": 120.5,
-  "crater_depth": 24.1,
-  "rim_height": 6.025,
-  "ejecta_volume": 50000.0,
-  "transient_crater_diameter": 100.4,
-  "energy_joules": 3.14e+12,
-  "model": "Pi-Scaling Prototype Model v0.1",
+  "crater_diameter": 577.3744,
+  "crater_depth": 115.4749,
+  "rim_height": 20.7855,
+  "ejecta_volume": 13682243.42,
+  "transient_crater_diameter": 461.8995,
+  "energy_joules": 3.142e+14,
+  "model": "Collins-Pike Lunar Scaling Model v0.2",
+  "crater_type": "simple",
   "warnings": []
 }
 ```
@@ -182,29 +183,39 @@ Delete an experiment.
 
 ## Simulation Model
 
-### Pi-Scaling Prototype Model v0.1
+### Collins-Pike Lunar Scaling Model v0.2
 
-The model uses a simplified **pi-scaling** approach (gravity-dominated regime):
+**1. Transient crater** — gravity-regime pi-scaling (Collins, Melosh & Marcus 2005, eq. 21):
 
 ```
-D_tc = K₁ · d · (ρ_i / ρ_t)^(1/3) · (v² / (g · a))^μ
+D_tc = 1.161 · (ρ_i / ρ_t)^(1/3) · L^0.78 · v^0.44 · g^-0.22 · sin^(1/3)θ
 ```
 
-Where:
-- `d` = impactor diameter
-- `ρ_i / ρ_t` = density ratio (impactor / target)
-- `v` = impact velocity
-- `g` = surface gravity
-- `a` = impactor radius
-- `K₁ ≈ 1.03`, `μ ≈ 0.22` (approximate coefficients)
+`L` = impactor diameter, `v` = velocity, `g` = surface gravity, `θ` = angle from horizontal.
 
-Angle correction uses `sin(θ)^(2μ)` scaling.
+**2. Final crater** — the transient cavity collapses. On the Moon craters larger than
+`D_c ≈ 15 km` (Pike 1977, scaled as 1/g) become *complex* craters with flat floors and central peaks;
+above ~300 km they become multi-ring *basins*.
 
-Final crater diameter ≈ 1.2 × transient crater diameter.
+```
+simple:  D = 1.25 · D_tc
+complex: D = 1.17 · D_tc^1.13 / D_c^0.13
+```
 
-**References (simplified from):**
-- Schmidt, R.M. & Housen, K.R. (1987)
-- Holsapple, K.A. (1993)
+**3. Depth & rim height** — fresh lunar crater morphometry (Pike 1977):
+simple `d ≈ 0.2 D`, `h ≈ 0.036 D`; complex `d ∝ D^0.301`, `h ∝ D^0.399` (anchored at `D_c`).
+
+**4. Excavated volume** — `V ≈ π D_tc³ / (16√2)`.
+
+**Defaults:** target density 2550 kg/m³ (lunar crust, GRAIL — Wieczorek et al. 2013),
+impactor density 3000 kg/m³, gravity 1.62 m/s².
+
+**Terrain visualisation** follows the oblique-impact regimes of Gault & Wedekind (1978):
+asymmetric ejecta below 45°, an uprange forbidden zone below 25°, elongated craters below 15°,
+and butterfly ejecta below 10°. Ejecta thickness decays as `(r/R)^-3` (McGetchin et al. 1973).
+
+**Not modelled:** target strength (small craters in cohesive regolith), porosity, melt, and
+hydrocode-level oblique-impact physics.
 
 ---
 
@@ -218,7 +229,8 @@ Final crater diameter ≈ 1.2 × transient crater diameter.
 
 **Soft warnings** (non-blocking) are returned when parameters exceed the model's comfortable range:
 - Diameter > 100 km or < 0.01 m
-- Velocity > 100 km/s or < 1 km/s
+- Velocity > 72 km/s (no natural impactor) or < 2.38 km/s (lunar escape velocity)
+- Final crater > 300 km (multi-ring basin) or larger than the Moon
 - Angle < 10°
 
 ---

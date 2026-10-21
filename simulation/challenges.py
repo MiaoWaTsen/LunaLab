@@ -15,26 +15,26 @@ CHALLENGES = [
         "title": "Mission 1: Replicate Tycho Crater (精準重現第谷坑)",
         "difficulty": "Medium ⭐⭐",
         "badge": "🌕 High Highland Master",
-        "description": "第谷坑 (Tycho Crater) 是月球南部高地最著名的年輕撞擊坑之一，直徑約 85 km，深達 4.8 km。請調整小行星直徑與撞擊速度，嘗試精確重現它的規模！",
+        "description": "第谷坑 (Tycho Crater) 是月球南部高地最著名的年輕複雜撞擊坑之一（約 1.08 億年前形成），直徑約 85 km，深達 4.8 km，擁有明顯的中央峰。請調整小行星直徑與撞擊速度，嘗試精確重現它的規模！",
         "target_diameter": 85000.0,  # 85 km
         "target_depth": 4800.0,      # 4.8 km
         "target_angle": 45.0,
         "diameter_tolerance_pct": 10.0,
         "depth_tolerance_pct": 15.0,
-        "tips": "提示：在月球重力 (1.62 m/s²) 下，直徑 2000m~3000m 的小行星以約 15~18 km/s 撞擊能達到類似規模。",
+        "tips": "提示：月球上直徑超過約 15 km 的坑會因坑壁崩塌形成平坦坑底與中央峰（複雜坑）。直徑約 5~7 km 的小行星以 15~18 km/s 撞擊可達到第谷坑規模。",
     },
     {
         "id": "grazing_skimmer",
         "title": "Mission 2: Low-Angle Grazing Impact (低空掠射橢圓坑)",
         "difficulty": "Hard ⭐⭐⭐",
         "badge": "☄️ Grazing Deflector",
-        "description": "挑戰超淺角撞擊 (撞擊角 ≤ 20°)，利用斜向撞擊物理模型製造出具有高度方向性偏心率的非對稱橢圓坑與順風向噴射毯！",
+        "description": "挑戰超淺角撞擊 (撞擊角 ≤ 20°)！低於 25° 時，迎面方向會出現沒有噴出物的「禁區」；低於 15° 時，撞擊坑開始沿飛行方向拉長成橢圓形。請製造一個直徑約 2 km 的斜向撞擊坑。",
         "target_diameter": 2000.0,   # 2 km
-        "target_depth": 350.0,
+        "target_depth": 400.0,       # fresh simple craters: d ≈ 0.2 D (Pike 1977)
         "max_angle": 20.0,
         "diameter_tolerance_pct": 20.0,
         "depth_tolerance_pct": 25.0,
-        "tips": "提示：角度越小（例如 10°~15°），非對稱橢圓變形與順風拋射物越顯著。",
+        "tips": "提示：斜向撞擊只有垂直分量有效挖掘，坑會比垂直撞擊小。試試 60~100 m 的小行星以 18 km/s、10°~15° 撞擊；低於 10° 會出現「蝴蝶狀」噴出物。",
     },
     {
         "id": "dinosaur_extinction",
@@ -45,7 +45,7 @@ CHALLENGES = [
         "min_energy": 1.0e23,
         "target_diameter": 150000.0, # 150 km
         "diameter_tolerance_pct": 25.0,
-        "tips": "提示：需要 10 km 級別的巨型小行星並以超過 20 km/s 的超高速撞擊。",
+        "tips": "提示：需要約 10 km 級別的巨型小行星並以約 20 km/s 撞擊。在月球上，這會形成直徑超過 150 km 的複雜坑。",
     },
     {
         "id": "apollo_tranquillity",
@@ -57,7 +57,7 @@ CHALLENGES = [
         "target_depth": 60.0,
         "diameter_tolerance_pct": 12.0,
         "depth_tolerance_pct": 18.0,
-        "tips": "提示：嘗試 5m~12m 的小隕石與 15~20 km/s 的常規衝擊速度。",
+        "tips": "提示：撞擊坑直徑大約是撞擊體的 60 倍左右。嘗試 4~6 m 的小隕石與 15~20 km/s 的常規撞擊速度（月球平均撞擊速度約 18 km/s）。",
     },
 ]
 

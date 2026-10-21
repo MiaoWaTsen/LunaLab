@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="LunaLab — Run a new lunar crater impact simulation using the Pi-Scaling Crater Model. View interactive terrain maps and cross-section profiles.">
+    <meta name="description" content="LunaLab — Run a new lunar crater impact simulation using a lunar crater scaling model. View interactive terrain maps and cross-section profiles.">
     <title>LunaLab — New Experiment</title>
-    <link rel="stylesheet" href="/static/styles.css?v=2">
-    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
     <style>
         /* ── Terrain section extras ─────────────────────────── */
         .terrain-toggle {
@@ -43,7 +43,7 @@
             width: 120px;
             height: 8px;
             border-radius: 4px;
-            background: linear-gradient(90deg, #312e81, #6366f1, #22d3ee, #34d399, #fbbf24);
+            background: linear-gradient(90deg, #16213a, #2c4670, #6b7f99, #a3a9b2, #cfc3a6, #f3e2b3);
         }
         /* ── Notes field ────────────────────────────────────── */
         .form-textarea {
@@ -119,14 +119,14 @@
     <nav class="navbar">
         <div class="container navbar__inner">
             <a href="/" class="navbar__brand">
-                <span class="navbar__brand-icon">🌑</span>
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
                 LunaLab
             </a>
             <ul class="navbar__links">
                 <li><a href="/" class="navbar__link">3D Moon</a></li>
-                <li><a href="/experiment" class="navbar__link navbar__link--active" id="nav-experiment">Experiment</a></li>
-                <li><a href="/challenge" class="navbar__link">🎮 Challenges</a></li>
-                <li><a href="/history" class="navbar__link" id="nav-history">History</a></li>
+                <li><a href="/experiment" class="navbar__link navbar__link--active">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
             </ul>
         </div>
     </nav>
@@ -156,21 +156,21 @@
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Click to auto-populate parameters</span>
             </div>
             <div class="preset-grid">
-                <button type="button" class="preset-card" data-diam="50" data-vel="12800" data-angle="45" data-az="45" data-notes="Meteor Crater (Barringer Crater, Arizona analog) — 50m nickel-iron impactor at 45° angle producing ~1.2km crater.">
+                <button type="button" class="preset-card" data-diam="50" data-vel="12800" data-angle="45" data-az="45" data-density="7800" data-notes="Meteor Crater (Barringer) analog — 50 m iron impactor (7800 kg/m³) at 12.8 km/s. On Earth this made a 1.2 km crater; in the Moon's weaker gravity the same impact digs a ~2.3 km crater.">
                     <div class="preset-card__title" style="color: #38bdf8;">💥 Meteor Crater</div>
-                    <div class="preset-card__desc">50m @ 12.8 km/s (45° oblique)</div>
+                    <div class="preset-card__desc">50 m iron @ 12.8 km/s, 45°</div>
                 </button>
-                <button type="button" class="preset-card" data-diam="2000" data-vel="15000" data-angle="45" data-az="120" data-lat="-43.3" data-lon="-11.2" data-notes="Tycho Crater Scale — ~2km asteroid creating ~85km rayed complex crater on Lunar south.">
+                <button type="button" class="preset-card" data-diam="6000" data-vel="16000" data-angle="45" data-az="120" data-lat="-43.3" data-lon="-11.2" data-notes="Tycho Crater scale — a ~6 km asteroid forms an ~85 km complex crater with a flat floor and central peak in the lunar southern highlands.">
                     <div class="preset-card__title" style="color: #a78bfa;">🌕 Tycho Crater Event</div>
-                    <div class="preset-card__desc">2 km @ 15.0 km/s (Lunar target)</div>
+                    <div class="preset-card__desc">6 km @ 16.0 km/s, 45°</div>
                 </button>
-                <button type="button" class="preset-card" data-diam="20" data-vel="19000" data-angle="20" data-az="280" data-notes="Chelyabinsk-scale Shallow Impactor — 20m body at low 20° grazing angle producing extreme asymmetric downrange ejecta.">
+                <button type="button" class="preset-card" data-diam="20" data-vel="19000" data-angle="20" data-az="280" data-density="3300" data-notes="Chelyabinsk-scale shallow impactor — 20 m stony body at 20°. Below 25° an uprange ejecta 'forbidden zone' appears.">
                     <div class="preset-card__title" style="color: #fbbf24;">☄️ Shallow Grazing Impact</div>
-                    <div class="preset-card__desc">20m @ 19.0 km/s (20° grazing)</div>
+                    <div class="preset-card__desc">20 m @ 19.0 km/s, 20°</div>
                 </button>
-                <button type="button" class="preset-card" data-diam="10000" data-vel="20000" data-angle="60" data-az="150" data-notes="Chicxulub Dinosaur Extinction Class — 10km giant impactor with catastrophic multi-megaton energy release.">
+                <button type="button" class="preset-card" data-diam="10000" data-vel="20000" data-angle="60" data-az="150" data-notes="Chicxulub-class impactor — 10 km body releasing ~3×10²³ J (≈75 million megatons of TNT), forming a ~160 km complex crater on the Moon.">
                     <div class="preset-card__title" style="color: #f43f5e;">🦖 Chicxulub Super-Impact</div>
-                    <div class="preset-card__desc">10 km @ 20.0 km/s (60° angle)</div>
+                    <div class="preset-card__desc">10 km @ 20.0 km/s, 60°</div>
                 </button>
             </div>
         </div>
@@ -206,7 +206,7 @@
 
                     <div class="form-group">
                         <label class="form-label" for="impact_angle">
-                            Impact Angle <span class="form-label__unit">(° from vertical)</span>
+                            Impact Angle <span class="form-label__unit">(° from horizontal)</span>
                         </label>
                         <input type="number" id="impact_angle" class="form-input"
                                placeholder="e.g. 45" step="any" min="0.1" max="90">
@@ -253,10 +253,10 @@
 
                     <div class="form-group">
                         <label class="form-label" for="target_density">
-                            Target Density <span class="form-label__unit">(kg/m³, default 2500)</span>
+                            Target Density <span class="form-label__unit">(kg/m³, default 2550 — lunar crust)</span>
                         </label>
                         <input type="number" id="target_density" class="form-input"
-                               placeholder="2500" step="any" min="1">
+                               placeholder="2550" step="any" min="1">
                     </div>
 
                     <div class="form-group">
@@ -304,6 +304,7 @@
                     <span class="card__title-icon">📊</span>
                     Simulation Result
                     <span class="badge badge--model" id="result-model"></span>
+                    <span class="badge badge--type" id="result-crater-type"></span>
                     <span class="saved-badge hidden" id="saved-badge">✓ Saved</span>
                 </h2>
 
@@ -387,10 +388,10 @@
 
                 <!-- Colour legend hint -->
                 <div class="terrain-legend">
-                    <span>Low</span>
+                    <span>Crater floor</span>
                     <div class="terrain-legend-gradient"></div>
-                    <span>High</span>
-                    <span style="margin-left:auto;">Elevation (m)</span>
+                    <span>Rim</span>
+                    <span style="margin-left:auto;">Grey = undisturbed surface (0 m)</span>
                 </div>
             </div>
         </section>
@@ -425,12 +426,12 @@
 
     <footer class="footer">
         <div class="container">
-            LunaLab v0.1.0 — Prototype · Pi-Scaling Crater Model
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
         </div>
     </footer>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 <script>
 // ---------------------------------------------------------------------------
 // State
@@ -470,6 +471,7 @@ document.querySelectorAll('.preset-card').forEach(card => {
         if (card.dataset.diam) document.getElementById('impactor_diameter').value = card.dataset.diam;
         if (card.dataset.vel) document.getElementById('impact_velocity').value = card.dataset.vel;
         if (card.dataset.angle) document.getElementById('impact_angle').value = card.dataset.angle;
+        document.getElementById('impactor_density').value = card.dataset.density || '';
         if (card.dataset.az) document.getElementById('impact_azimuth').value = card.dataset.az;
         if (card.dataset.lat) document.getElementById('latitude').value = card.dataset.lat;
         if (card.dataset.lon) document.getElementById('longitude').value = card.dataset.lon;
@@ -530,6 +532,7 @@ async function loadExistingExperiment(id) {
             energy_joules: exp.energy_joules,
             model: exp.model_name,
             warnings: JSON.parse(exp.warnings_json || '[]'),
+            crater_type: exp.crater_type,
         }, profile, elevation, exp, /* isSaved= */ true);
     } catch (err) {
         showToast('Failed to load experiment: ' + err.message, 'error');
@@ -602,7 +605,7 @@ document.getElementById('simulation-form').addEventListener('submit', async (e) 
         ]);
 
         displayResults(result, profile, elevation, body, /* isSaved= */ true);
-        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved (+15 XP)', 'success');
+        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved' + (getAuthToken() ? ' (+15 XP)' : ''), 'success');
         
         // Refresh commander XP if logged in
         if (getAuthToken()) {
@@ -634,13 +637,16 @@ function displayResults(result, profile, elevation, inputParams, isSaved = false
     if (isSaved) savedBadge.classList.remove('hidden');
 
     // ── Metric cards ─────────────────────────────────────────
-    document.getElementById('res-crater-diam').textContent  = formatNumber(result.crater_diameter) + ' m';
-    document.getElementById('res-crater-depth').textContent = formatNumber(result.crater_depth) + ' m';
-    document.getElementById('res-rim-height').textContent   = formatNumber(result.rim_height) + ' m';
-    document.getElementById('res-transient').textContent    = formatNumber(result.transient_crater_diameter) + ' m';
+    document.getElementById('res-crater-diam').textContent  = formatLength(result.crater_diameter);
+    document.getElementById('res-crater-depth').textContent = formatLength(result.crater_depth);
+    document.getElementById('res-rim-height').textContent   = formatLength(result.rim_height);
+    document.getElementById('res-transient').textContent    = formatLength(result.transient_crater_diameter);
     document.getElementById('res-ejecta').textContent       = formatNumber(result.ejecta_volume) + ' m³';
     document.getElementById('res-energy').textContent       = formatEnergy(result.energy_joules);
     document.getElementById('result-model').textContent     = result.model;
+    const typeEl = document.getElementById('result-crater-type');
+    typeEl.textContent = CRATER_TYPE_LABELS[result.crater_type] || '';
+    typeEl.title = CRATER_TYPE_HINTS[result.crater_type] || '';
     document.getElementById('res-experiment-id').textContent = 'Experiment #' + result.experiment_id;
 
     // ── Notes ────────────────────────────────────────────────
@@ -668,16 +674,24 @@ function displayResults(result, profile, elevation, inputParams, isSaved = false
     // ── Asymmetry indicators ──────────────────────────────────
     const asymBadge = document.getElementById('badge-asymmetric');
     const terrainDesc = document.getElementById('terrain-description');
-    const isAsym = elevation.is_asymmetric || (inputParams.impact_angle && inputParams.impact_angle < 89.5);
-    if (isAsym) {
-        const az = inputParams.impact_azimuth ?? elevation.impact_azimuth ?? 0;
-        const ang = inputParams.impact_angle ?? elevation.impact_angle ?? 45;
-        asymBadge.textContent = `⚡ Oblique Impact: ${ang}° Angle, Azimuth ${az}°`;
+    const interior = {
+        simple:  'bowl-shaped interior',
+        complex: 'flat floor with a central peak',
+        basin:   'flat floor with an inner peak ring',
+    }[result.crater_type] || 'bowl-shaped interior';
+    if (elevation.is_asymmetric) {
+        const az = elevation.impact_azimuth ?? 0;
+        const ang = elevation.impact_angle ?? 45;
+        asymBadge.textContent = `Oblique impact · ${ang}° · heading ${az}°`;
         asymBadge.classList.remove('hidden');
-        terrainDesc.textContent = `Asymmetric 2-D terrain field (${ang}° angle from vertical, heading ${az}°). Modeled with downrange parabolic elongation, uprange elevated rim ridge, and directionally biased ejecta blanket.`;
+        const features = ['ejecta concentrated downrange'];
+        if (ang < 25) features.push('an uprange ejecta "forbidden zone"');
+        if (ang < 15) features.push('a crater elongated along the flight path');
+        if (ang < 10) features.push('butterfly-shaped ejecta');
+        terrainDesc.textContent = `Synthetic terrain: ${interior}; ${features.join(', ')}. Colour encodes elevation.`;
     } else {
         asymBadge.classList.add('hidden');
-        terrainDesc.textContent = `2-D terrain field generated from crater geometry: parabolic bowl, Gaussian rim, and power-law ejecta blanket. Colour encodes elevation.`;
+        terrainDesc.textContent = `Synthetic terrain: ${interior}, raised rim and an ejecta blanket thinning as (r/R)⁻³. Impacts steeper than 45° leave near-symmetric craters.`;
     }
 
     // ── Terrain map (heatmap by default) ─────────────────────
@@ -705,14 +719,7 @@ function renderTerrainHeatmap(field) {
         x: field.x,
         y: field.y,
         z: field.z,
-        colorscale: [
-            [0.00, '#312e81'],
-            [0.18, '#6366f1'],
-            [0.38, '#22d3ee'],
-            [0.60, '#34d399'],
-            [0.80, '#fbbf24'],
-            [1.00, '#f97316'],
-        ],
+        colorscale: terrainColorscale(field),
         zmin: field.z_min,
         zmax: field.z_max,
         colorbar: {
@@ -727,7 +734,7 @@ function renderTerrainHeatmap(field) {
     const layout = {
         ...PLOTLY_LAYOUT_DEFAULTS,
         title: { text: 'Crater Elevation Field — Top-Down View', font: { color: '#e2e8f0', size: 14 } },
-        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y', constrain: 'domain' },
         yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Y (m)' },
         margin: { t: 50, r: 80, b: 60, l: 70 },
     };
@@ -741,14 +748,7 @@ function renderTerrainSurface(field) {
         x: field.x,
         y: field.y,
         z: field.z,
-        colorscale: [
-            [0.00, '#312e81'],
-            [0.18, '#6366f1'],
-            [0.38, '#22d3ee'],
-            [0.60, '#34d399'],
-            [0.80, '#fbbf24'],
-            [1.00, '#f97316'],
-        ],
+        colorscale: terrainColorscale(field),
         cmin: field.z_min,
         cmax: field.z_max,
         showscale: true,
@@ -771,7 +771,7 @@ function renderTerrainSurface(field) {
             xaxis: { title: 'X (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
             yaxis: { title: 'Y (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
             zaxis: { title: 'Elevation (m)', gridcolor: 'rgba(42,49,80,0.5)', zerolinecolor: 'rgba(42,49,80,0.8)' },
-            bgcolor: '#111827',
+            bgcolor: 'rgba(0,0,0,0)',
             camera: { eye: { x: 1.5, y: 1.5, z: 1.1 } },
         },
         margin: { t: 50, r: 60, b: 20, l: 20 },
@@ -786,14 +786,7 @@ function renderTerrainContour(field) {
         x: field.x,
         y: field.y,
         z: field.z,
-        colorscale: [
-            [0.00, '#312e81'],
-            [0.18, '#6366f1'],
-            [0.38, '#22d3ee'],
-            [0.60, '#34d399'],
-            [0.80, '#fbbf24'],
-            [1.00, '#f97316'],
-        ],
+        colorscale: terrainColorscale(field),
         zmin: field.z_min,
         zmax: field.z_max,
         contours: {
@@ -813,7 +806,7 @@ function renderTerrainContour(field) {
     const layout = {
         ...PLOTLY_LAYOUT_DEFAULTS,
         title: { text: 'Crater Elevation Contour Map', font: { color: '#e2e8f0', size: 14 } },
-        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'X (m)', scaleanchor: 'y', constrain: 'domain' },
         yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Y (m)' },
         margin: { t: 50, r: 80, b: 60, l: 70 },
     };
@@ -846,8 +839,8 @@ function renderCraterProfile(profile, result) {
         type: 'scatter',
         mode: 'lines',
         fill: 'tozeroy',
-        fillcolor: 'rgba(99, 102, 241, 0.12)',
-        line: { color: '#6366f1', width: 2.5 },
+        fillcolor: 'rgba(124, 140, 255, 0.1)',
+        line: { color: '#7c8cff', width: 2.5 },
         name: 'Crater Profile',
         hovertemplate: 'x: %{x:.1f} m<br>Elevation: %{y:.2f} m<extra></extra>',
     };
@@ -859,8 +852,8 @@ function renderCraterProfile(profile, result) {
             x: 0, y: -result.crater_depth,
             text: `Floor −${formatNumber(result.crater_depth)} m`,
             showarrow: true, arrowhead: 2, ax: 50, ay: -30,
-            font: { color: '#22d3ee', size: 10 },
-            arrowcolor: '#22d3ee',
+            font: { color: '#67d4e8', size: 10 },
+            arrowcolor: '#67d4e8',
         },
         {
             x: craterR * 1.1, y: result.rim_height,
@@ -896,11 +889,11 @@ function renderParamBarChart(inputParams, result) {
     const paramValues = [
         inputParams.impactor_diameter,
         inputParams.impact_velocity,
-        inputParams.impact_angle || inputParams.impact_angle,
+        inputParams.impact_angle,
         result.crater_diameter,
         result.crater_depth,
     ];
-    const paramColors = ['#6366f1', '#6366f1', '#6366f1', '#22d3ee', '#22d3ee'];
+    const paramColors = ['#7c8cff', '#7c8cff', '#7c8cff', '#67d4e8', '#67d4e8'];
 
     const barTrace = {
         x: paramLabels,

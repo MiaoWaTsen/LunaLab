@@ -7,12 +7,13 @@ This module generates a *synthetic* elevation field for **visualization
 purposes only**.  The output is NOT a real lunar Digital Elevation Model
 (DEM) and does NOT represent actual lunar topography.
 
-The terrain is constructed analytically from three simplified geometric
-zones derived from the crater scaling results:
+The terrain is constructed analytically from the crater scaling results:
 
-    1. Parabolic bowl  — interior of the crater cavity
-    2. Gaussian rim    — raised lip around the crater edge
-    3. Power-law ejecta blanket — material deposited beyond the rim
+    1. Interior — parabolic bowl (simple craters), or flat floor with a
+       central peak (complex craters) / peak ring (basins)
+    2. Rim crest at the crater radius
+    3. Ejecta blanket — thickness ∝ (r/R)^-3 (McGetchin et al. 1973),
+       tapered to zero at the edge of the domain
 
 These shapes are geometric approximations intended to give a plausible
 visual impression of a crater morphology.  They are *not* the output of
@@ -67,13 +68,69 @@ TERRAIN_HEIGHT = 512    # number of rows    (y-axis samples)
 
 
 # ---------------------------------------------------------------------------
-# Terrain geometry parameters (relative to crater radius)
+# Terrain geometry parameters (relative to crater radius R)
 # ---------------------------------------------------------------------------
 
-_RIM_WIDTH_FACTOR    = 0.30   # rim extends 30% of radius beyond the edge
-_EJECTA_RANGE_FACTOR = 4.00   # ejecta blanket fades at 4× rim_width
-_EJECTA_PEAK_RATIO   = 0.25   # ejecta peak height = 25% of rim height
-_DOMAIN_HALF_FACTOR  = 2.50   # domain spans ±2.5 × crater radius
+DOMAIN_HALF_FACTOR = 2.50   # domain spans ±2.5 R
+
+# Complex-crater interior (illustrative values for fresh lunar craters)
+_COMPLEX_FLOOR_FRACTION = 0.40   # flat floor radius / R
+_CENTRAL_PEAK_HEIGHT    = 0.30   # central peak height / depth
+_CENTRAL_PEAK_WIDTH     = 0.12   # central peak half-width / R
+
+# Basin interior
+_BASIN_FLOOR_FRACTION = 0.60
+_PEAK_RING_RADIUS     = 0.45     # peak ring radius / R
+_PEAK_RING_HEIGHT     = 0.20     # peak ring height / depth
+_PEAK_RING_WIDTH      = 0.06
+
+
+def radial_elevation(s, crater_depth: float, rim_height: float, crater_type: str = "simple"):
+    """
+    Axisymmetric crater elevation as a function of normalised radius.
+
+    Parameters
+    ----------
+    s : array-like
+        Radial distance divided by the crater radius (r / R), >= 0.
+    crater_depth, rim_height : float
+        Floor depth below and rim height above the pre-impact surface (m).
+    crater_type : str
+        'simple', 'complex' or 'basin'.
+
+    Returns
+    -------
+    numpy.ndarray of elevations (m), same shape as *s*.  The profile is
+    continuous: -depth at the floor, +rim_height at s = 1, and 0 at
+    s = DOMAIN_HALF_FACTOR.
+    """
+    s = np.asarray(s, dtype=np.float64)
+    d, h = crater_depth, rim_height
+    z = np.zeros_like(s)
+
+    inside = s <= 1.0
+    si = s[inside]
+    if crater_type == "simple":
+        # Paraboloid bowl rising from the floor to the rim crest
+        zi = -d + (d + h) * si ** 2
+    else:
+        floor = _BASIN_FLOOR_FRACTION if crater_type == "basin" else _COMPLEX_FLOOR_FRACTION
+        t = np.clip((si - floor) / (1.0 - floor), 0.0, 1.0)
+        zi = -d + (d + h) * t ** 2          # flat floor, terraced-looking wall
+        if crater_type == "basin":
+            zi += _PEAK_RING_HEIGHT * d * np.exp(
+                -((si - _PEAK_RING_RADIUS) / _PEAK_RING_WIDTH) ** 2
+            )
+        else:
+            zi += _CENTRAL_PEAK_HEIGHT * d * np.exp(-(si / _CENTRAL_PEAK_WIDTH) ** 2)
+    z[inside] = zi
+
+    # Ejecta blanket: (r/R)^-3 decay, tapered to zero at the domain edge
+    outside = ~inside
+    so = s[outside]
+    taper = np.clip(1.0 - (so - 1.0) / (DOMAIN_HALF_FACTOR - 1.0), 0.0, 1.0) ** 2
+    z[outside] = h * so ** -3.0 * taper
+    return z
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +143,7 @@ def generate_elevation_field(
     rim_height: float,
     width: int = TERRAIN_WIDTH,
     height: int = TERRAIN_HEIGHT,
+    crater_type: str = "simple",
 ) -> dict:
     """
     Generate a synthetic 2-D elevation field from crater geometry.
@@ -110,6 +168,8 @@ def generate_elevation_field(
         Number of columns in the output grid (default: 1024).
     height : int
         Number of rows in the output grid (default: 512).
+    crater_type : str
+        'simple', 'complex' or 'basin' — selects the interior morphology.
 
     Returns
     -------
@@ -143,12 +203,8 @@ def generate_elevation_field(
 
     t_start = time.perf_counter()
 
-    radius    = crater_diameter / 2.0
-    rim_width = radius * _RIM_WIDTH_FACTOR
-    half_domain = radius * _DOMAIN_HALF_FACTOR
-
-    # Ejecta blanket outer boundary
-    ejecta_outer = radius + rim_width * _EJECTA_RANGE_FACTOR
+    radius      = crater_diameter / 2.0
+    half_domain = radius * DOMAIN_HALF_FACTOR
 
     # ── Build coordinate axes (NumPy) ──────────────────────────────────────
     x_axis = np.linspace(-half_domain, half_domain, width)    # (width,)
@@ -159,26 +215,7 @@ def generate_elevation_field(
     xg, yg = np.meshgrid(x_axis, y_axis)   # both shape: (height, width)
     r = np.sqrt(xg ** 2 + yg ** 2)         # radial distance from centre
 
-    # ── Allocate output array ──────────────────────────────────────────────
-    z = np.zeros((height, width), dtype=np.float32)
-
-    # ── Zone 1: Parabolic crater bowl ─────────────────────────────────────
-    bowl_mask = r <= radius
-    z[bowl_mask] = -crater_depth * (1.0 - (r[bowl_mask] / radius) ** 2)
-
-    # ── Zone 2: Gaussian rim ──────────────────────────────────────────────
-    rim_outer = radius + rim_width
-    rim_mask  = (r > radius) & (r <= rim_outer)
-    t_rim     = (r[rim_mask] - radius) / rim_width
-    z[rim_mask] = rim_height * np.exp(-3.0 * t_rim ** 2)
-
-    # ── Zone 3: Power-law ejecta blanket ─────────────────────────────────
-    ejecta_mask = (r > rim_outer) & (r <= ejecta_outer)
-    t_ej = (r[ejecta_mask] - rim_outer) / (ejecta_outer - rim_outer)
-    ejecta_peak = rim_height * _EJECTA_PEAK_RATIO
-    z[ejecta_mask] = ejecta_peak * (1.0 - t_ej) ** 2
-
-    # Zone 4: Undisturbed terrain — already zero from np.zeros
+    z = radial_elevation(r / radius, crater_depth, rim_height, crater_type).astype(np.float32)
 
     z_min = float(z.min())
     z_max = float(z.max())
