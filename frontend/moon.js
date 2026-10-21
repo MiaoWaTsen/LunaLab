@@ -6,6 +6,8 @@ const loadingOverlay = document.getElementById('loading-overlay');
 const valLat = document.getElementById('val-lat');
 const valLon = document.getElementById('val-lon');
 const btnConfirm = document.getElementById('btn-confirm');
+const coordLandmark = document.getElementById('coord-landmark');
+const valLandmark = document.getElementById('val-landmark');
 
 let selectedLat = null;
 let selectedLon = null;
@@ -37,7 +39,11 @@ scene.add(fillLight);
 
 const radius = 1;
 const geometry = new THREE.SphereGeometry(radius, 128, 64);
-geometry.rotateY(Math.PI);
+// SphereGeometry puts texture u = 0.5 (longitude 0°) on +X. Rotating by -90°
+// moves it to +Z, facing the camera, so the near side faces the viewer as
+// seen from Earth, with lunar east (Mare Crisium) on the right. This is the
+// orientation localToLatLon / latLonToLocal assume.
+geometry.rotateY(-Math.PI / 2);
 
 const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -114,7 +120,37 @@ export function localToLatLon(localPoint) {
     };
 }
 
-container.addEventListener('click', (event) => {
+// Dragging rotates the Moon; only a press released without moving selects a
+// point. OrbitControls still receives every pointer event, so a drag that ends
+// over the Moon no longer counts as a click.
+const CLICK_MAX_MOVE_PX = 5;
+let pointerDown = null;
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    pointerDown = { x: event.clientX, y: event.clientY, id: event.pointerId };
+});
+
+renderer.domElement.addEventListener('pointerup', (event) => {
+    if (!pointerDown || event.pointerId !== pointerDown.id) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    pointerDown = null;
+    container.classList.remove('is-dragging');
+    if (moved <= CLICK_MAX_MOVE_PX) selectAt(event);
+});
+
+renderer.domElement.addEventListener('pointermove', (event) => {
+    if (!pointerDown || event.pointerId !== pointerDown.id) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    if (moved > CLICK_MAX_MOVE_PX) container.classList.add('is-dragging');
+});
+
+renderer.domElement.addEventListener('pointercancel', () => {
+    pointerDown = null;
+    container.classList.remove('is-dragging');
+});
+
+function selectAt(event) {
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -138,8 +174,9 @@ container.addEventListener('click', (event) => {
         marker.visible = true;
         
         btnConfirm.disabled = false;
+        if (coordLandmark) coordLandmark.style.display = 'none';
     }
-});
+}
 
 window.addEventListener('resize', () => {
     camera.aspect = container.clientWidth / container.clientHeight;
@@ -166,8 +203,6 @@ export function latLonToLocal(lat, lon) {
 }
 
 // Landmark buttons handling
-const coordLandmark = document.getElementById('coord-landmark');
-const valLandmark = document.getElementById('val-landmark');
 
 document.querySelectorAll('.landmark-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
