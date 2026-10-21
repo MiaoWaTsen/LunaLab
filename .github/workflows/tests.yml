@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: "3.11.9"   # matches runtime.txt
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest-github-actions-annotate-failures
       # E2E tests skip themselves here: Playwright is not installed in this job
       - run: pytest -q
 
@@ -26,6 +26,8 @@ jobs:
         with:
           python-version: "3.11.9"
           cache: pip
-      - run: pip install -r requirements.txt playwright
+      # The annotate plugin turns each failure into a GitHub annotation, readable
+      # in the run summary without downloading logs
+      - run: pip install -r requirements.txt playwright pytest-github-actions-annotate-failures
       - run: python -m playwright install --with-deps chromium
       - run: pytest tests/e2e -v
