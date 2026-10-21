@@ -8,6 +8,23 @@ const valLon = document.getElementById('val-lon');
 const btnConfirm = document.getElementById('btn-confirm');
 const coordLandmark = document.getElementById('coord-landmark');
 const valLandmark = document.getElementById('val-landmark');
+const valElevation = document.getElementById('val-elevation');
+
+let elevationRequest = 0;
+async function showElevation(lat, lon) {
+    if (!valElevation) return;
+    const requestId = ++elevationRequest;
+    valElevation.textContent = '…';
+    try {
+        const res = await apiGet(`/api/moon/elevation?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`);
+        if (requestId !== elevationRequest) return;  // a newer pick superseded this one
+        const sign = res.elevation >= 0 ? '+' : '−';
+        valElevation.textContent = `${sign}${Math.abs(res.elevation / 1000).toFixed(2)} km`;
+        valElevation.title = res.source;
+    } catch (_) {
+        if (requestId === elevationRequest) valElevation.textContent = '—';
+    }
+}
 
 let selectedLat = null;
 let selectedLon = null;
@@ -66,12 +83,18 @@ textureLoader.load(
     (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         material.map = texture;
-        material.bumpMap = texture;
-        material.bumpScale = 0.04;
         material.roughness = 0.85;
         material.metalness = 0.05;
         material.needsUpdate = true;
         if (loadingOverlay) loadingOverlay.style.display = 'none';
+
+        // Relief from real LOLA laser altimetry (not from image brightness),
+        // so maria read as low plains and highlands as high ground.
+        textureLoader.load('/static/textures/moon_lola_height.png', (height) => {
+            material.bumpMap = height;
+            material.bumpScale = 3.0;
+            material.needsUpdate = true;
+        });
     },
     undefined,
     (err) => {
@@ -175,6 +198,7 @@ function selectAt(event) {
         
         btnConfirm.disabled = false;
         if (coordLandmark) coordLandmark.style.display = 'none';
+        showElevation(selectedLat, selectedLon);
     }
 }
 
@@ -225,6 +249,7 @@ document.querySelectorAll('.landmark-btn').forEach(btn => {
         marker.position.multiplyScalar(1.06);
         marker.visible = true;
         btnConfirm.disabled = false;
+        showElevation(lat, lon);
 
         // Smoothly rotate camera towards the selected landmark
         controls.target.set(0, 0, 0);

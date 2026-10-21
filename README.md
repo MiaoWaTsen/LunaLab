@@ -214,6 +214,11 @@ impactor density 3000 kg/m³, gravity 1.62 m/s².
 asymmetric ejecta below 45°, an uprange forbidden zone below 25°, elongated craters below 15°,
 and butterfly ejecta below 10°. Ejecta thickness decays as `(r/R)^-3` (McGetchin et al. 1973).
 
+**Lunar surface data:** the 3D Moon uses NASA LRO imagery for colour and the LOLA laser-altimeter
+DEM (LDEM_4, 4 px/deg, [PDS Geosciences Node](https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/))
+for relief. `GET /api/moon/elevation?lat=&lon=` returns real elevation in metres relative to the
+1737.4 km reference sphere; experiments store it as `surface_elevation`.
+
 **Not modelled:** target strength (small craters in cohesive regolith), porosity, melt, and
 hydrocode-level oblique-impact physics.
 

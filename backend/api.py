@@ -418,6 +418,23 @@ def remove_experiment(experiment_id: int):
     return {"detail": "Experiment deleted."}
 
 
+@app.get("/api/moon/elevation")
+def get_moon_elevation(lat: float, lon: float):
+    """Surface elevation (m, relative to the 1737.4 km sphere) at a coordinate."""
+    provider = get_surface_provider()
+    try:
+        elevation = provider.get_elevation(lat, lon)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "elevation": elevation,
+        "source": provider.get_provider_name(),
+        "is_real_data": provider.is_real_data(),
+    }
+
+
 @app.get("/api/moon/terrain-texture")
 def get_moon_terrain_texture():
     """Return an 8-bit raw displacement map for 3D sphere visualization."""

@@ -94,8 +94,8 @@
                     <span class="card__title-icon">🌕</span>
                     Interactive 3D Moon
                 </h2>
-                <span class="badge badge--model" style="background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.4); color: #22d3ee;">
-                    Texture: NASA LRO Lunar Orbiter (Real Imagery)
+                <span class="badge badge--type">
+                    Imagery: NASA LRO · Relief: LOLA laser altimetry
                 </span>
             </div>
 
@@ -132,6 +132,10 @@
                         <span class="coord-label">Longitude</span>
                         <span class="coord-value" id="val-lon">—</span>
                     </div>
+                    <div class="coord-group">
+                        <span class="coord-label">Elevation (LOLA)</span>
+                        <span class="coord-value" id="val-elevation">—</span>
+                    </div>
                     <div class="coord-group" id="coord-landmark" style="display:none;">
                         <span class="coord-label">Landmark</span>
                         <span class="coord-value" id="val-landmark" style="color: #38bdf8; font-size: 0.95rem;">—</span>
@@ -153,6 +157,6 @@
     </footer>
 </div>
 <script src="/static/app.js?v=3"></script>
-<script type="module" src="/static/moon.js?v=3"></script>
+<script type="module" src="/static/moon.js?v=4"></script>
 </body>
 </html>

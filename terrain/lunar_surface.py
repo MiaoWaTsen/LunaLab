@@ -1,8 +1,9 @@
 """
 Lunar Surface Provider — terrain/lunar_surface.py
 
-This module defines an abstract interface for lunar surface elevation data
-and provides a fallback procedural generator.
+This module defines an abstract interface for lunar surface elevation data,
+a provider backed by real NASA LOLA laser-altimeter data, and a procedural
+fallback used only when the data file is missing.
 
 SCIENTIFIC DISCLAIMER
 ======================
@@ -10,9 +11,10 @@ The ``FallbackSurfaceProvider`` does NOT use real lunar elevation data.
 It generates a procedural height field using layered noise that *loosely*
 resembles lunar topography for visualization purposes only.
 
-When a real Lunar DEM (e.g. SLDEM2015 — Barker et al. 2016) becomes
-available, implement ``SLDEM2015Provider`` using the same interface so
-that the rest of the system (API, frontend, simulation) remains unchanged.
+``LolaSurfaceProvider`` uses the LOLA gridded DEM at 4 pixels/degree
+(~7.6 km per pixel at the equator), heights in metres relative to the
+1737.4 km reference sphere.  It is the default whenever
+``terrain/data/lola_ldem4_m.npy`` is present.
 
 Provider Interface
 -------------------
@@ -24,6 +26,11 @@ Any provider must implement:
 
 References
 -----------
+    - LOLA GDR: Smith, D. E. et al. (2010). "The Lunar Orbiter Laser
+      Altimeter investigation on the Lunar Reconnaissance Orbiter mission,"
+      Space Sci. Rev., 150, 209–241.  Product LDEM_4 from the PDS
+      Geosciences Node (NASA public domain):
+      https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/
     - SLDEM2015: Barker, M. K. et al. (2016). "A new lunar digital
       elevation model from the Lunar Orbiter Laser Altimeter and SELENE
       Terrain Camera," Icarus, 273, 346–355.
@@ -32,6 +39,7 @@ References
 """
 
 import math
+import os
 import hashlib
 import struct
 from abc import ABC, abstractmethod
@@ -347,6 +355,70 @@ class FallbackSurfaceProvider(LunarSurfaceProvider):
 
 
 # ---------------------------------------------------------------------------
+# Real data provider — NASA LOLA gridded DEM
+# ---------------------------------------------------------------------------
+
+LOLA_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "lola_ldem4_m.npy")
+
+
+class LolaSurfaceProvider(LunarSurfaceProvider):
+    """
+    Lunar elevation from the LOLA LDEM_4 grid (real laser-altimeter data).
+
+    The stored array is int16 metres, shape (720, 1440): rows run from
+    90°N to 90°S, columns from 180°W to 180°E, 0.25° per pixel, values at
+    pixel centres.  Elevations are bilinearly interpolated, wrapping in
+    longitude.
+    """
+
+    PIXELS_PER_DEGREE = 4
+
+    def __init__(self, path: str = LOLA_DATA_PATH):
+        self._heights = np.load(path).astype(np.float32)
+        rows, cols = self._heights.shape
+        if (rows, cols) != (180 * self.PIXELS_PER_DEGREE, 360 * self.PIXELS_PER_DEGREE):
+            raise ValueError(f"Unexpected LOLA grid shape {self._heights.shape}")
+        self._texture_cache: dict[tuple, np.ndarray] = {}
+
+    def _sample(self, lat, lon):
+        """Bilinear sample at arrays of lat/lon (degrees)."""
+        ppd = self.PIXELS_PER_DEGREE
+        rows, cols = self._heights.shape
+        r = np.clip((90.0 - np.asarray(lat)) * ppd - 0.5, 0, rows - 1)
+        c = (np.asarray(lon) + 180.0) * ppd - 0.5
+        r0 = np.floor(r).astype(int)
+        r1 = np.minimum(r0 + 1, rows - 1)
+        c0 = np.floor(c).astype(int)
+        fr, fc = r - r0, c - c0
+        c0w, c1w = c0 % cols, (c0 + 1) % cols
+        h = self._heights
+        top = h[r0, c0w] * (1 - fc) + h[r0, c1w] * fc
+        bottom = h[r1, c0w] * (1 - fc) + h[r1, c1w] * fc
+        return top * (1 - fr) + bottom * fr
+
+    def get_elevation(self, latitude: float, longitude: float) -> float:
+        self.validate_coordinates(latitude, longitude)
+        return round(float(self._sample(latitude, longitude)), 1)
+
+    def get_terrain_texture(self, width: int = 2048, height: int = 1024) -> np.ndarray:
+        key = (width, height)
+        if key not in self._texture_cache:
+            lons = (np.arange(width) + 0.5) / width * 360.0 - 180.0
+            lats = 90.0 - (np.arange(height) + 0.5) / height * 180.0
+            lon_grid, lat_grid = np.meshgrid(lons, lats)
+            elev = self._sample(lat_grid, lon_grid)
+            lo, hi = self._heights.min(), self._heights.max()
+            self._texture_cache[key] = (np.clip((elev - lo) / (hi - lo), 0, 1) * 255).astype(np.uint8)
+        return self._texture_cache[key]
+
+    def get_provider_name(self) -> str:
+        return "NASA LRO LOLA LDEM_4 (real laser altimetry, 4 px/deg)"
+
+    def is_real_data(self) -> bool:
+        return True
+
+
+# ---------------------------------------------------------------------------
 # Module-level default provider instance
 # ---------------------------------------------------------------------------
 
@@ -357,12 +429,15 @@ def get_surface_provider() -> LunarSurfaceProvider:
     """
     Return the current lunar surface provider.
 
-    Uses FallbackSurfaceProvider by default.  To switch to a real DEM
-    provider, call ``set_surface_provider()`` at application startup.
+    Uses the real LOLA DEM when its data file is present, otherwise the
+    procedural FallbackSurfaceProvider.
     """
     global _default_provider
     if _default_provider is None:
-        _default_provider = FallbackSurfaceProvider()
+        if os.path.exists(LOLA_DATA_PATH):
+            _default_provider = LolaSurfaceProvider()
+        else:
+            _default_provider = FallbackSurfaceProvider()
     return _default_provider
 
 
