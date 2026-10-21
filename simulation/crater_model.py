@@ -69,7 +69,9 @@ LUNAR_BASIN_DIAMETER = 300_000.0      # m
 
 def transition_diameter(surface_gravity: float = LUNAR_GRAVITY) -> float:
     """Simple-to-complex transition diameter (m), scaled as 1/g from the Moon."""
-    return LUNAR_TRANSITION_DIAMETER * LUNAR_GRAVITY / surface_gravity
+    # Ratio first: 15000 * 1.62 / 1.62 is 14999.999999999998 in floating point,
+    # which would misclassify a crater exactly at the transition.
+    return LUNAR_TRANSITION_DIAMETER * (LUNAR_GRAVITY / surface_gravity)
 
 
 def classify_crater(crater_diameter: float, surface_gravity: float = LUNAR_GRAVITY) -> str:

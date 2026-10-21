@@ -219,6 +219,14 @@ DEM (LDEM_4, 4 px/deg, [PDS Geosciences Node](https://pds-geosciences.wustl.edu/
 for relief. `GET /api/moon/elevation?lat=&lon=` returns real elevation in metres relative to the
 1737.4 km reference sphere; experiments store it as `surface_elevation`.
 
+**Sunlight & libration:** `GET /api/moon/illumination?at=<ISO time>` returns the sub-solar point,
+the sub-Earth point (optical libration) and the phase, from a Meeus ephemeris (*Astronomical
+Algorithms*, ch. 25/47/48/53; checked against the book's worked examples to ~0.03°). The 3D Moon
+uses it for the day/night terminator and to start the camera where Earth sees the Moon today.
+
+**Research XP:** each simulation earns +15 XP for the first 10 per UTC day. A challenge earns the XP
+for its grade (S 150 · A 100 · B 60 · C 25) only above your best previous grade on that mission.
+
 **Not modelled:** target strength (small craters in cohesive regolith), porosity, melt, and
 hydrocode-level oblique-impact physics.
 

@@ -431,7 +431,7 @@
     </footer>
 </div>
 
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=5"></script>
 <script>
 // ---------------------------------------------------------------------------
 // State
@@ -605,7 +605,8 @@ document.getElementById('simulation-form').addEventListener('submit', async (e) 
         ]);
 
         displayResults(result, profile, elevation, body, /* isSaved= */ true);
-        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved' + (getAuthToken() ? ' (+15 XP)' : ''), 'success');
+        showToast('Simulation complete — Experiment #' + result.experiment_id + ' saved'
+            + (result.xp_awarded ? ` (+${result.xp_awarded} XP)` : ' (daily XP limit reached)'), 'success');
         
         // Refresh commander XP if logged in
         if (getAuthToken()) {

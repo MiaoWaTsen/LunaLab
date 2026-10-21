@@ -526,9 +526,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
         } catch (_) {
-            setAuthToken(null);
-            setStoredUser(null);
-            redirectToLogin();
+            // A 401 has already cleared the token and redirected (see api()).
+            // Anything else — a dropped connection, or this request being
+            // aborted because the user navigated away — says nothing about the
+            // session, so keep the user signed in.  (Clearing here logged
+            // people out whenever they clicked a link while this was in flight.)
         }
     }
     updateNavUser();

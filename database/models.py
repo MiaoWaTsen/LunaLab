@@ -468,6 +468,32 @@ def save_challenge_record(data: dict, db_path: Optional[str] = None) -> int:
     return rec_id
 
 
+def count_user_experiments_since(user_id: int, since_iso: str, db_path: Optional[str] = None) -> int:
+    """Number of experiments a user created at or after an ISO-8601 UTC timestamp."""
+    conn = get_connection(db_path)
+    (count,) = conn.execute(
+        "SELECT COUNT(*) FROM experiments WHERE user_id = ? AND created_at >= ?",
+        (user_id, since_iso),
+    ).fetchone()
+    conn.close()
+    return count
+
+
+def get_best_challenge_grade(user_id: int, challenge_id: str, db_path: Optional[str] = None) -> Optional[str]:
+    """Best grade (S > A > B > C) a user has reached on a challenge, or None."""
+    conn = get_connection(db_path)
+    rows = conn.execute(
+        "SELECT DISTINCT grade FROM challenge_records WHERE user_id = ? AND challenge_id = ?",
+        (user_id, challenge_id),
+    ).fetchall()
+    conn.close()
+    grades = {r["grade"] for r in rows}
+    for grade in ("S", "A", "B", "C"):
+        if grade in grades:
+            return grade
+    return None
+
+
 def get_user_challenge_records(user_id: Optional[int] = None, limit: int = 20, db_path: Optional[str] = None) -> list[dict]:
     """Retrieve challenge history records (all users when user_id is None)."""
     conn = get_connection(db_path)

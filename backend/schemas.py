@@ -136,6 +136,7 @@ class SimulationResponse(BaseModel):
     impact_azimuth: float = 0.0
     impact_location: Optional[ImpactLocation] = None
     crater_type: str = "simple"
+    xp_awarded: int = 0
 
 
 class ExperimentDetail(BaseModel):

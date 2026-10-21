@@ -192,7 +192,7 @@
     </footer>
 </div>
 
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=5"></script>
 <script>
 let challenges = [];
 let currentChallenge = null;
@@ -365,8 +365,11 @@ function displayEvaluationResults(evaluation, simulation, profile, elevation) {
     gradeBadge.className = `grade-badge grade-badge--${evaluation.grade.toLowerCase()}`;
 
     document.getElementById('eval-score-text').textContent = `Score: ${evaluation.score} / 100 (${evaluation.grade}-Tier)`;
-    document.getElementById('eval-xp-badge').textContent = `+${evaluation.xp_gain} Research XP Awarded`;
-    document.getElementById('eval-feedback').textContent = evaluation.feedback;
+    const xpBadge = document.getElementById('eval-xp-badge');
+    xpBadge.textContent = evaluation.xp_gain > 0 ? `+${evaluation.xp_gain} Research XP Awarded` : 'No XP this time';
+    xpBadge.title = evaluation.xp_note || '';
+    document.getElementById('eval-feedback').textContent =
+        evaluation.xp_note ? `${evaluation.feedback} ${evaluation.xp_note}` : evaluation.feedback;
 
     document.getElementById('eval-crater-diam').textContent = formatLength(simulation.crater_diameter);
     document.getElementById('eval-diam-err').textContent = evaluation.diameter_error_pct + '%';

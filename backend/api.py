@@ -12,6 +12,7 @@ It does NOT contain any simulation math or direct SQL.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -48,7 +49,9 @@ from simulation.challenges import (
     CHALLENGES,
     get_challenge_by_id,
     evaluate_challenge,
+    award_challenge_xp,
 )
+from simulation.lunar_ephemeris import moon_illumination
 from terrain.lunar_surface import get_surface_provider
 from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
@@ -67,7 +70,13 @@ from database.models import (
     add_user_xp,
     save_challenge_record,
     get_user_challenge_records,
+    count_user_experiments_since,
+    get_best_challenge_grade,
 )
+
+# Research XP for plain simulations: +15 each, for the first 10 per UTC day.
+SIMULATION_XP = 15
+DAILY_SIMULATION_XP_LIMIT = 10
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +219,15 @@ def run_challenge(challenge_id: str, req: ChallengeSubmitRequest, user: dict = D
         req.simulation.model_dump(),
     )
 
-    add_user_xp(user["id"], eval_res["xp_gain"])
+    previous_best = get_best_challenge_grade(user["id"], challenge_id)
+    xp = award_challenge_xp(eval_res["grade"], previous_best)
+    eval_res["xp_gain"] = xp
+    eval_res["previous_best_grade"] = previous_best
+    if xp == 0:
+        eval_res["xp_note"] = f"No XP: your best grade on this mission is already {previous_best}. Beat it to earn more."
+    elif previous_best:
+        eval_res["xp_note"] = f"New best (previous {previous_best}): you earn the difference."
+    add_user_xp(user["id"], xp)
     updated_user = get_user_by_id(user["id"])
 
     rec_id = save_challenge_record({
@@ -301,8 +318,12 @@ def _simulate_and_save(req: SimulationRequest, user: dict) -> SimulationResponse
     }
     experiment_id = save_experiment(experiment_data)
 
-    # Award +15 Research XP
-    add_user_xp(user["id"], 15)
+    # Research XP, capped per UTC day (this experiment is already counted)
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    runs_today = count_user_experiments_since(user["id"], day_start.isoformat())
+    xp_awarded = SIMULATION_XP if runs_today <= DAILY_SIMULATION_XP_LIMIT else 0
+    if xp_awarded:
+        add_user_xp(user["id"], xp_awarded)
 
     impact_loc = None
     if req.latitude is not None and req.longitude is not None:
@@ -325,6 +346,7 @@ def _simulate_and_save(req: SimulationRequest, user: dict) -> SimulationResponse
         impact_azimuth=req.impact_azimuth,
         impact_location=impact_loc,
         crater_type=result.crater_type,
+        xp_awarded=xp_awarded,
     )
 
 
@@ -442,6 +464,27 @@ def get_moon_elevation(lat: float, lon: float):
         "elevation": elevation,
         "source": provider.get_provider_name(),
         "is_real_data": provider.is_real_data(),
+    }
+
+
+@app.get("/api/moon/illumination")
+def get_moon_illumination(at: Optional[datetime] = None):
+    """
+    Where the Sun and Earth are as seen from the Moon (Meeus ephemeris):
+    sub-solar point, sub-Earth point (libration), phase.  Defaults to now.
+    """
+    when = at or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    m = moon_illumination(when)
+    return {
+        "at": when.astimezone(timezone.utc).isoformat(),
+        "sub_solar": {"latitude": round(m.sub_solar_lat, 3), "longitude": round(m.sub_solar_lon, 3)},
+        "sub_earth": {"latitude": round(m.sub_earth_lat, 3), "longitude": round(m.sub_earth_lon, 3)},
+        "phase_angle": round(m.phase_angle, 2),
+        "illuminated_fraction": round(m.illuminated_fraction, 4),
+        "phase_name": m.phase_name,
+        "waxing": m.waxing,
     }
 
 

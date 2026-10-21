@@ -245,3 +245,55 @@ def test_login_page_is_served(client):
     res = client.get("/login")
     assert res.status_code == 200
     assert "Commander Login" in res.text
+
+
+# ---------------------------------------------------------------------------
+# XP anti-farming
+# ---------------------------------------------------------------------------
+
+from simulation.challenges import award_challenge_xp, GRADE_XP
+
+
+@pytest.mark.parametrize("grade,previous,expected", [
+    ("S", None, 150), ("C", None, 25),
+    ("S", "C", 125), ("A", "B", 40),
+    ("A", "A", 0), ("B", "S", 0), ("C", "C", 0),
+])
+def test_award_challenge_xp_only_for_improvement(grade, previous, expected):
+    assert award_challenge_xp(grade, previous) == expected
+
+
+def _auth(client, name):
+    token = client.post("/api/auth/register", json={"username": name, "password": "pass1234"}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_repeating_a_challenge_grade_earns_no_xp(client):
+    h = _auth(client, "Farmer")
+    sim = {"simulation": {"impactor_diameter": 5.0, "impact_velocity": 16000.0, "impact_angle": 45.0}}
+    first = client.post("/api/challenges/apollo_tranquillity/run", json=sim, headers=h).json()
+    second = client.post("/api/challenges/apollo_tranquillity/run", json=sim, headers=h).json()
+    grade = first["evaluation"]["grade"]
+    assert first["evaluation"]["xp_gain"] == GRADE_XP[grade]
+    assert second["evaluation"]["xp_gain"] == 0
+    assert "Beat it" in second["evaluation"]["xp_note"]
+
+
+def test_beating_previous_grade_earns_the_difference(client):
+    h = _auth(client, "Improver")
+    bad = {"simulation": {"impactor_diameter": 50.0, "impact_velocity": 16000.0, "impact_angle": 45.0}}
+    good = {"simulation": {"impactor_diameter": 5.0, "impact_velocity": 16000.0, "impact_angle": 45.0}}
+    r1 = client.post("/api/challenges/apollo_tranquillity/run", json=bad, headers=h).json()["evaluation"]
+    r2 = client.post("/api/challenges/apollo_tranquillity/run", json=good, headers=h).json()["evaluation"]
+    assert r1["grade"] == "C" and r2["grade"] == "S"
+    assert r2["xp_gain"] == GRADE_XP["S"] - GRADE_XP["C"]
+    assert r2["previous_best_grade"] == "C"
+
+
+def test_simulation_xp_capped_at_ten_per_day(client):
+    h = _auth(client, "Grinder")
+    sim = {"impactor_diameter": 10, "impact_velocity": 18000, "impact_angle": 45}
+    awarded = [client.post("/api/simulations", json=sim, headers=h).json()["xp_awarded"] for _ in range(11)]
+    assert awarded[:10] == [15] * 10
+    assert awarded[10] == 0
+    assert client.get("/api/auth/me", headers=h).json()["xp"] == 150

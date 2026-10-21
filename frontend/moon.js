@@ -54,22 +54,25 @@ fillLight.position.set(-5, -2, -5);
 scene.add(fillLight);
 
 // ---------------------------------------------------------------------------
-// Real sunlight for today's date
+// Real sunlight and libration for the current moment
 // ---------------------------------------------------------------------------
-// The Moon's mean elongation D (Meeus, Astronomical Algorithms, ch. 47) gives
-// the phase. The sub-solar point sits at selenographic longitude ≈ 180° − D:
-// new moon (D = 0) lights the far side, first quarter (D = 90°) the eastern
-// limb, full moon (D = 180°) the near side. Libration and the ±1.5°
-// sub-solar latitude are ignored; the terminator is placed within about 6°.
-export function moonPhase(date = new Date()) {
-    const T = (date.getTime() / 86400000 + 2440587.5 - 2451545.0) / 36525;
-    const D = ((297.8501921 + 445267.1114034 * T) % 360 + 360) % 360;
-    const subSolarLon = ((180 - D) % 360 + 540) % 360 - 180;
-    const illuminated = (1 - Math.cos(D * Math.PI / 180)) / 2;
-    const names = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous',
-                   'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent'];
-    const name = names.at(Math.round(D / 45) % 8);
-    return { D, subSolarLon, illuminated, name };
+// /api/moon/illumination runs a Meeus ephemeris on the server: the sub-solar
+// point places the light (day/night terminator), and the sub-Earth point is
+// the centre of the disc as seen from Earth today (libration), where the
+// camera starts.
+let illumination = null;
+
+async function loadIllumination() {
+    try {
+        illumination = await apiGet('/api/moon/illumination');
+        const e = illumination.sub_earth;
+        camera.position.copy(latLonToLocal(e.latitude, e.longitude).multiplyScalar(camera.position.length()));
+        camera.lookAt(0, 0, 0);
+        controls.update();
+    } catch (err) {
+        console.warn('Illumination unavailable, using even lighting', err);
+    }
+    applyLighting();
 }
 
 const sunToggle = document.getElementById('btn-sun-toggle');
@@ -77,23 +80,25 @@ const sunInfo = document.getElementById('sun-info');
 let realSunlight = true;
 
 function applyLighting() {
-    if (realSunlight) {
-        const phase = moonPhase();
-        directionalLight.position.copy(latLonToLocal(0, phase.subSolarLon).multiplyScalar(5));
+    if (realSunlight && illumination) {
+        const s = illumination.sub_solar;
+        directionalLight.position.copy(latLonToLocal(s.latitude, s.longitude).multiplyScalar(5));
         directionalLight.intensity = 3.0;
         ambientLight.intensity = 0.35;   // faint "earthshine" so the night side stays pickable
         fillLight.visible = false;
         if (sunInfo) {
-            const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-            sunInfo.textContent = `Sunlight for ${today} · ${phase.name}, ${Math.round(phase.illuminated * 100)}% of the near side lit`;
+            const when = new Date(illumination.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+            const lib = illumination.sub_earth;
+            const fmt = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}°`;
+            sunInfo.textContent = `${when} · ${illumination.phase_name}, ${Math.round(illumination.illuminated_fraction * 100)}% lit · libration ${fmt(lib.longitude)} lon, ${fmt(lib.latitude)} lat`;
         }
         if (sunToggle) sunToggle.textContent = 'Even lighting';
     } else {
-        directionalLight.position.set(5, 3, 5);
+        directionalLight.position.copy(camera.position).add(new THREE.Vector3(2, 1.5, 0)).normalize().multiplyScalar(5);
         directionalLight.intensity = 2.5;
         ambientLight.intensity = 1.0;
         fillLight.visible = true;
-        if (sunInfo) sunInfo.textContent = 'Even studio lighting (not the real Sun)';
+        if (sunInfo) sunInfo.textContent = illumination ? 'Even studio lighting (not the real Sun)' : 'Even lighting (ephemeris unavailable)';
         if (sunToggle) sunToggle.textContent = 'Real sunlight';
     }
 }
@@ -278,6 +283,7 @@ export function latLonToLocal(lat, lon) {
 }
 
 applyLighting();
+loadIllumination();
 
 // Landmark buttons handling
 

@@ -62,6 +62,17 @@ CHALLENGES = [
 ]
 
 
+# XP for reaching each grade.  Repeat attempts only earn the difference when
+# they beat the player's previous best grade (see award_challenge_xp).
+GRADE_XP = {"S": 150, "A": 100, "B": 60, "C": 25}
+
+
+def award_challenge_xp(grade: str, previous_best: Optional[str]) -> int:
+    """XP for this attempt: the gain over the best grade already earned."""
+    already = GRADE_XP.get(previous_best, 0) if previous_best else 0
+    return max(0, GRADE_XP[grade] - already)
+
+
 def get_challenge_by_id(challenge_id: str) -> Optional[dict]:
     """Lookup challenge config by ID."""
     for ch in CHALLENGES:
@@ -138,22 +149,18 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
     # Grade determination
     if score >= 90.0:
         grade = "S"
-        xp_gain = 150
         passed = True
         status_msg = "卓越達成！各項物理量完美吻合已知月球地質特徵！"
     elif score >= 75.0:
         grade = "A"
-        xp_gain = 100
         passed = True
         status_msg = "任務成功！物理數值極其接近目標範圍。"
     elif score >= 60.0:
         grade = "B"
-        xp_gain = 60
         passed = True
         status_msg = "基本達標。可微調參數以獲得更精確的模擬匹配。"
     else:
         grade = "C"
-        xp_gain = 25
         passed = False
         status_msg = "未達標準。數值偏差較大，請參考科學提示重新調整小行星質量與速度。"
 
@@ -169,7 +176,7 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
         "passed": passed,
         "diameter_error_pct": round(diam_err_pct, 2),
         "depth_error_pct": round(depth_err_pct, 2),
-        "xp_gain": xp_gain,
+        "xp_gain": GRADE_XP[grade],   # before repeat-attempt rules; the API adjusts it
         "feedback": feedback,
         "badge": ch.get("badge"),
     }
