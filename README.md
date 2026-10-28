@@ -285,3 +285,19 @@ hydrocode-level oblique-impact physics.
 ## License
 
 This is a course project / prototype. All rights reserved.
+
+## Deploying on Render (with Supabase)
+
+Render's free tier wipes the local disk on every restart, redeploy and
+spin-down, so a SQLite file there loses all accounts and experiments.
+In production, store data in PostgreSQL instead:
+
+1. In Supabase: **Connect** → copy the **Session pooler** URI
+   (Render has no IPv6, and the direct connection is IPv6-only).
+2. In Render: **Environment** → add `DATABASE_URL` = that URI, with your
+   database password filled in.
+3. Redeploy. Tables are created automatically on startup.
+
+Without `DATABASE_URL`, LunaLab uses the local SQLite file as before.
+Run the test suite with `DATABASE_URL` unset, so it never touches the
+production database.

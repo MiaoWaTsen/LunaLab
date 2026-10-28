@@ -1,12 +1,20 @@
 """
-Database module — SQLite models & CRUD operations.
+Database module — SQLite / PostgreSQL models & CRUD operations.
 
 This module handles all data persistence for LunaLab experiments.
 It is decoupled from the simulation logic and the web API.
+
+Backend selection:
+  * DATABASE_URL set (e.g. a Supabase connection string) -> PostgreSQL.
+    Use this in production: Render's free tier wipes the local disk on every
+    restart, redeploy and spin-down, so a SQLite file there loses all data.
+  * otherwise -> a local SQLite file (LUNALAB_DB_PATH or ./lunalab.db).
+    Tests and local development use this.
 """
 
 import sqlite3
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -21,6 +29,10 @@ _DEFAULT_DB_PATH = os.path.join(
 )
 
 DB_PATH = os.environ.get("LUNALAB_DB_PATH", _DEFAULT_DB_PATH)
+
+# PostgreSQL connection string (Supabase: use the Session pooler URI, since
+# Render has no IPv6 and Supabase's direct connection is IPv6-only).
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or None
 
 # Session idle timeout: a token expires after this many minutes without use.
 SESSION_TTL_MINUTES = int(os.environ.get("LUNALAB_SESSION_TTL_MINUTES", "30"))
@@ -129,8 +141,117 @@ def get_rank_for_level(level: int) -> str:
 # Connection helper
 # ---------------------------------------------------------------------------
 
-def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
-    """Return a new SQLite connection with row_factory set."""
+def _use_postgres(db_path: Optional[str]) -> bool:
+    # An explicit db_path always means a SQLite file (used by tests).
+    return DATABASE_URL is not None and db_path is None
+
+
+class _PgRow:
+    """Row that behaves like sqlite3.Row: row["col"], row[0], dict(row), unpacking."""
+
+    __slots__ = ("_cols", "_vals")
+
+    def __init__(self, cols, vals):
+        self._cols = cols
+        self._vals = tuple(vals)
+
+    def keys(self):
+        return list(self._cols)
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, slice)):
+            return self._vals[key]
+        return self._vals[self._cols.index(key)]
+
+    def __iter__(self):
+        return iter(self._vals)
+
+    def __len__(self):
+        return len(self._vals)
+
+
+class _PgCursor:
+    def __init__(self, cur, lastrowid=None):
+        self._cur = cur
+        self.lastrowid = lastrowid
+        self.rowcount = cur.rowcount
+        self._cols = [d.name for d in cur.description] if cur.description else []
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return None if row is None else _PgRow(self._cols, row)
+
+    def fetchall(self):
+        return [_PgRow(self._cols, r) for r in self._cur.fetchall()]
+
+
+class _PgConnection:
+    """Minimal sqlite3-style wrapper over psycopg, so the CRUD code stays the same."""
+
+    def __init__(self, url: str):
+        import psycopg  # imported lazily: only needed when DATABASE_URL is set
+
+        # prepare_threshold=None: Supabase's pooler can't keep prepared statements.
+        self._conn = psycopg.connect(url, prepare_threshold=None)
+
+    def execute(self, sql: str, params=()):
+        sql = sql.replace("?", "%s")
+        is_insert = sql.lstrip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in sql.upper():
+            sql = sql.rstrip().rstrip(";") + " RETURNING *"
+        cur = self._conn.cursor()
+        cur.execute(sql, tuple(params))
+        lastrowid = None
+        if is_insert and cur.description:
+            cols = [d.name for d in cur.description]
+            row = cur.fetchone()
+            if row is not None and "id" in cols:
+                lastrowid = row[cols.index("id")]
+        return _PgCursor(cur, lastrowid)
+
+    def executescript(self, script: str) -> None:
+        for stmt in script.split(";"):
+            if stmt.strip():
+                self._conn.execute(stmt)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _integrity_errors() -> tuple:
+    errors = [sqlite3.IntegrityError]
+    if DATABASE_URL is not None:
+        import psycopg
+
+        errors.append(psycopg.IntegrityError)
+    return tuple(errors)
+
+
+def _table_columns(conn, table: str, postgres: bool) -> list[str]:
+    if postgres:
+        rows = conn.execute(
+            "SELECT column_name AS name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            (table,),
+        ).fetchall()
+    else:
+        rows = conn.execute(f"PRAGMA table_info({table});").fetchall()
+    return [row["name"] for row in rows]
+
+
+def _postgres_schema(sql: str) -> str:
+    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    # SQLite REAL is 64-bit; PostgreSQL REAL is only 32-bit.
+    return re.sub(r"\bREAL\b", "DOUBLE PRECISION", sql)
+
+
+def get_connection(db_path: Optional[str] = None):
+    """Return a new connection: PostgreSQL if DATABASE_URL is set, else SQLite."""
+    if _use_postgres(db_path):
+        return _PgConnection(DATABASE_URL)
     path = db_path or DB_PATH
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -140,12 +261,12 @@ def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
 
 def init_db(db_path: Optional[str] = None) -> None:
     """Create tables if they don't exist, and apply migrations."""
+    postgres = _use_postgres(db_path)
     conn = get_connection(db_path)
-    conn.executescript(_CREATE_TABLE_SQL)
-    
+    conn.executescript(_postgres_schema(_CREATE_TABLE_SQL) if postgres else _CREATE_TABLE_SQL)
+
     # Migrations: Add new columns if missing
-    cursor = conn.execute("PRAGMA table_info(experiments);")
-    columns = [row["name"] for row in cursor.fetchall()]
+    columns = _table_columns(conn, "experiments", postgres)
     
     if "impact_azimuth" not in columns:
         conn.execute("ALTER TABLE experiments ADD COLUMN impact_azimuth REAL DEFAULT 0.0;")
@@ -158,8 +279,7 @@ def init_db(db_path: Optional[str] = None) -> None:
     if "user_id" not in columns:
         conn.execute("ALTER TABLE experiments ADD COLUMN user_id INTEGER;")
 
-    cursor = conn.execute("PRAGMA table_info(user_sessions);")
-    session_columns = [row["name"] for row in cursor.fetchall()]
+    session_columns = _table_columns(conn, "user_sessions", postgres)
     if "expires_at" not in session_columns:
         # Pre-existing sessions have no expiry, so drop them (users log in again).
         conn.execute("ALTER TABLE user_sessions ADD COLUMN expires_at TEXT;")
@@ -307,7 +427,7 @@ def create_user(username: str, password: str, db_path: Optional[str] = None) -> 
         )
         conn.commit()
         user_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
+    except _integrity_errors():
         conn.close()
         raise ValueError(f"Username '{username}' is already taken.")
 
