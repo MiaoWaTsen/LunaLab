@@ -8,8 +8,12 @@ the XP awarded, so each cut is tested exactly on the line and just below it
 Scores are driven through the Tycho mission, whose score is
     0.6 * diameter_score + 0.4 * depth_score
 With the diameter exact (diameter_score = 100) and a depth error of e %,
-the score is 100 - 0.8 e.  So a depth error of 12.5 %, 31.25 % and 50 %
-lands exactly on 90, 75 and 60 points.
+the score is 100 - 0.8 e.  So a depth error of 12.5 % and 31.25 % lands
+exactly on 90 and 75 points.  60 points needs both errors: 20 % on the
+diameter (score 50) and 12.5 % on the depth (score 75) give 30 + 30.
+
+A measurement that scores zero (diameter >= 40 % off, depth >= 50 % off)
+fails outright, whatever the total.
 """
 
 import pytest
@@ -35,10 +39,8 @@ def tycho(depth_error_pct: float, diameter_error_pct: float = 0.0) -> dict:
     (12.51, 0.0,  90.0, "A", True),    # just below: 89.992, shown rounded as 90.0
     (31.25, 0.0,  75.0, "A", True),    # exactly on the A line
     (31.26, 0.0,  75.0, "B", True),    # just below: 74.992
-    (50.0,  0.0,  60.0, "B", True),    # exactly on the B line (lowest passing score)
-    # Just below 60.  A larger depth error can't get there (see the xfail test
-    # below), so a 0.01 % diameter error does it: 60 - 0.015 = 59.985.
-    (50.0,  0.01, 60.0, "C", False),
+    (12.5,  20.0, 60.0, "B", True),    # exactly on the B line (lowest passing score)
+    (12.51, 20.0, 60.0, "C", False),   # just below: 59.992
 ])
 def test_grade_boundaries(depth_error_pct, diameter_error_pct, score, grade, passed):
     evaluation = tycho(depth_error_pct, diameter_error_pct)
@@ -54,14 +56,24 @@ def test_score_never_goes_below_zero():
     assert evaluation["grade"] == "C"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Known bug: depth_score is clamped at 0 once the depth is 50 % off, so an "
-    "exact diameter alone scores 60 and passes with grade B, however wrong the "
-    "depth is. The missions' diameter/depth_tolerance_pct are never used either."
-))
+# Regression test for a bug found by the boundary tests above: the depth score
+# stops at 0, so an exact diameter alone used to score 60 and pass, however
+# wrong the depth.  It was kept as a strict xfail until the fix landed.
 def test_wildly_wrong_depth_does_not_pass():
     evaluation = tycho(900.0)   # depth ten times too deep
     assert evaluation["passed"] is False
+
+
+@pytest.mark.parametrize("depth_error_pct, diameter_error_pct, grade, passed", [
+    (49.99, 0.0, "B", True),     # depth score 0.02: still counts, 60.008 points
+    (50.0,  0.0, "C", False),    # depth score 0: fails although the total is 60
+    (0.0,  39.99, "C", False),   # diameter score 0.025: 40.015 points, fails on points
+    (0.0,  40.0, "C", False),    # diameter score 0: fails outright
+])
+def test_a_measurement_scoring_zero_fails(depth_error_pct, diameter_error_pct, grade, passed):
+    evaluation = tycho(depth_error_pct, diameter_error_pct)
+    assert evaluation["grade"] == grade
+    assert evaluation["passed"] is passed
 
 
 @pytest.mark.parametrize("grade, previous_best, expected", [

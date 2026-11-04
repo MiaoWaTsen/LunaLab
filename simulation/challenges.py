@@ -164,6 +164,14 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
         passed = False
         status_msg = "未達標準。數值偏差較大，請參考科學提示重新調整小行星質量與速度。"
 
+    # A measurement that scores zero fails the mission outright.  Without this,
+    # an exact diameter alone reaches 0.6 * 100 = 60 points and passes, however
+    # wrong the depth is, because the depth score cannot drop below zero.
+    if diam_score == 0.0 or (target_depth and depth_score == 0.0):
+        grade = "C"
+        passed = False
+        status_msg = "未達標準。坑徑誤差達 40% 以上或深度誤差達 50% 以上，任一項完全不符即不及格。"
+
     feedback = f"{status_msg} 坑徑誤差: {diam_err_pct:.1f}%，深度誤差: {depth_err_pct:.1f}%。"
     if feedback_notes:
         feedback += " " + " ".join(feedback_notes)
