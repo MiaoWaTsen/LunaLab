@@ -1,0 +1,48 @@
+"""
+Shared fixtures.
+
+`db_backend` runs a test once per database engine: SQLite (local development
+and tests) and PostgreSQL (production).  The production data loss came from
+testing on a different engine than the one deployed, so the database tests
+run on both.
+
+The PostgreSQL run needs TEST_DATABASE_URL.  Locally it is skipped without
+one; in CI (CI=true) a missing URL fails instead, so the PostgreSQL run can
+never be skipped silently.
+"""
+
+import os
+
+import pytest
+
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip() or None
+
+_TABLES = "challenge_records, user_sessions, users, experiments"
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def db_backend(request, monkeypatch, tmp_path):
+    """Yield the db_path to pass to database functions: a SQLite file, or None for PostgreSQL."""
+    # Imported here, not at the top: importing database.models reads
+    # LUNALAB_DB_PATH, which test modules (test_api.py) set at collection.
+    from database.models import get_connection, init_db
+
+    if request.param == "sqlite":
+        path = str(tmp_path / "test.db")
+        init_db(path)
+        yield path
+        return
+
+    if TEST_DATABASE_URL is None:
+        if os.environ.get("CI"):
+            pytest.fail("TEST_DATABASE_URL is not set: the PostgreSQL tests must run in CI")
+        pytest.skip("TEST_DATABASE_URL is not set")
+
+    # db_path=None plus DATABASE_URL is exactly how production selects PostgreSQL
+    monkeypatch.setattr("database.models.DATABASE_URL", TEST_DATABASE_URL)
+    conn = get_connection()
+    conn.executescript(f"DROP TABLE IF EXISTS {_TABLES} CASCADE")
+    conn.commit()
+    conn.close()
+    init_db()
+    yield None

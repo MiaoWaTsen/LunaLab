@@ -1,16 +1,13 @@
 """
 Tests for the Database Module.
 
-Tests CRUD operations independently using a temporary database.
+Tests CRUD operations independently using a temporary database, once on
+SQLite and once on PostgreSQL (see the db_backend fixture in conftest.py).
 """
 
 import pytest
-import tempfile
-import os
-import json
 
 from database.models import (
-    init_db,
     save_experiment,
     get_experiment,
     get_all_experiments,
@@ -20,13 +17,9 @@ from database.models import (
 
 
 @pytest.fixture
-def db_path():
-    """Create a temporary database for each test."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    init_db(path)
-    yield path
-    os.unlink(path)
+def db_path(db_backend):
+    """A fresh database for each test, on each engine."""
+    return db_backend
 
 
 def _sample_experiment_data(**overrides):

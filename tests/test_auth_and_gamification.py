@@ -2,14 +2,14 @@
 Tests for User Authentication and Gamification / Challenge Systems.
 """
 
-import pytest
-import tempfile
 import os
+
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.api import app
 from database.models import (
-    init_db,
+    get_connection,
     create_user,
     authenticate_user,
     create_session,
@@ -24,13 +24,9 @@ from simulation.challenges import (
 )
 
 @pytest.fixture
-def auth_db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    init_db(path)
-    yield path
-    if os.path.exists(path):
-        os.unlink(path)
+def auth_db(db_backend):
+    """A fresh database for each test, on SQLite and on PostgreSQL (see conftest.py)."""
+    return db_backend
 
 
 @pytest.fixture
@@ -177,13 +173,12 @@ def test_api_challenge_run_endpoint(client):
 
 
 def test_session_expires_after_idle_timeout(auth_db, monkeypatch):
-    import sqlite3
     user = create_user("IdleCommander", "pass1234", db_path=auth_db)
     token = create_session(user["id"], db_path=auth_db)
     assert get_user_by_session(token, db_path=auth_db) is not None
 
     # Force the session into the past → it must be rejected and removed
-    conn = sqlite3.connect(auth_db)
+    conn = get_connection(auth_db)
     conn.execute(
         "UPDATE user_sessions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE token = ?",
         (token,),
@@ -192,23 +187,22 @@ def test_session_expires_after_idle_timeout(auth_db, monkeypatch):
     conn.close()
 
     assert get_user_by_session(token, db_path=auth_db) is None
-    conn = sqlite3.connect(auth_db)
+    conn = get_connection(auth_db)
     remaining = conn.execute("SELECT COUNT(*) FROM user_sessions").fetchone()[0]
     conn.close()
     assert remaining == 0
 
 
 def test_session_use_extends_expiry(auth_db):
-    import sqlite3
     user = create_user("ActiveCommander", "pass1234", db_path=auth_db)
     token = create_session(user["id"], db_path=auth_db)
-    conn = sqlite3.connect(auth_db)
+    conn = get_connection(auth_db)
     before = conn.execute("SELECT expires_at FROM user_sessions WHERE token = ?", (token,)).fetchone()[0]
     conn.close()
 
     get_user_by_session(token, db_path=auth_db)
 
-    conn = sqlite3.connect(auth_db)
+    conn = get_connection(auth_db)
     after = conn.execute("SELECT expires_at FROM user_sessions WHERE token = ?", (token,)).fetchone()[0]
     conn.close()
     assert after >= before

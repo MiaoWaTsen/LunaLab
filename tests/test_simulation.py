@@ -255,3 +255,21 @@ class TestCraterProfile:
         # First and last should be at y ≈ 0
         assert abs(profile["y"][0]) < 0.01
         assert abs(profile["y"][-1]) < 0.01
+
+    # The next two were found by mutation testing: the profile could use the
+    # diameter as its radius, or ignore crater_type, and no test noticed.
+
+    def test_rim_crest_sits_at_crater_radius(self):
+        # 501 points over ±2.5 R puts a sample exactly on x = ±50 m
+        profile = generate_crater_profile(100, 20, 5, num_points=501)
+        xs, ys = profile["x"], profile["y"]
+        rim_x = xs[ys.index(max(ys))]
+        assert abs(rim_x) == pytest.approx(50.0)
+        assert max(ys) == pytest.approx(5.0)
+
+    def test_complex_profile_has_central_peak(self):
+        profile = generate_crater_profile(100, 20, 5, num_points=501, crater_type="complex")
+        ys = profile["y"]
+        mid = len(ys) // 2
+        # The centre rises above the floor around it, unlike a simple bowl
+        assert ys[mid] > ys[mid + 20]

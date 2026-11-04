@@ -12,6 +12,23 @@ Model summary
 
        D_tc = 1.161 (ρ_i/ρ_t)^(1/3) L^0.78 v^0.44 g^-0.22 sin^(1/3)θ
 
+   Its exponents correspond to μ ≈ 0.55: a competent, non-porous target
+   (target_material="rock", the default).
+
+   target_material="regolith" uses Holsapple (1993) point-source scaling
+   with porous-regolith parameters instead (μ = 0.4, ν = 0.333,
+   K1 = 0.2, K2 = 0.75, Kr = 1.1, Y = 1 kPa, as applied to lunar impacts
+   by Madiedo et al. 2019):
+
+       π_V = K1 [ π2 (ρ_t/ρ_i)^((6ν-2-μ)/3μ)
+                  + (K2 π3 (ρ_t/ρ_i)^((6ν-2)/3μ))^((2+μ)/2) ]^(-3μ/(2+μ))
+       π2 = g a / U²,  π3 = Y / (ρ_t U²),  U = v sinθ,  a = impactor radius
+       D  = 2 Kr (m π_V / ρ_t)^(1/3)          (rim-to-rim)
+
+   Energy lost to compacting the pores makes these craters about half
+   the size of the "rock" ones.  Validated against two observed lunar
+   impacts in tests/test_real_impacts.py.
+
 2. Simple → complex transition at D_c ≈ 15 km on the Moon (Pike 1977),
    scaled inversely with surface gravity for other bodies.
 
@@ -29,9 +46,11 @@ Model summary
        V_tc ≈ π D_tc³ / (16 √2)
 
 SCIENTIFIC DISCLAIMER:
-    This is a simplified, educational model.  It ignores target strength
-    (relevant for small craters in cohesive regolith), porosity effects,
-    and the detailed physics of very oblique impacts.  It is NOT a
+    This is a simplified, educational model.  The default "rock" scaling
+    ignores the porosity of the lunar regolith (which overestimates small
+    craters about 2x, see tests/test_real_impacts.py) and target strength,
+    and neither option models the detailed physics of very oblique
+    impacts.  It is NOT a
     validated hydrocode simulation.
 
 References:
@@ -41,6 +60,9 @@ References:
       craters on the Moon." In Impact and Explosion Cratering, 489–509.
     - Holsapple, K.A. (1993). "The scaling of impact processes in
       planetary sciences." Annu. Rev. Earth Planet. Sci. 21, 333–373.
+    - Madiedo, J.M. et al. (2019). "Multiwavelength observations of a
+      bright impact flash during the January 2019 total lunar eclipse."
+      MNRAS 486, 3380–3387.
     - Wieczorek, M.A. et al. (2013). "The crust of the Moon as seen by
       GRAIL." Science 339, 671–675.
 """
@@ -65,6 +87,22 @@ LUNAR_DIAMETER = 3_474_800.0       # m
 LUNAR_TRANSITION_DIAMETER = 15_000.0  # m
 # Above this, lunar craters become peak-ring / multi-ring basins
 LUNAR_BASIN_DIAMETER = 300_000.0      # m
+
+TARGET_MATERIALS = ("rock", "regolith")
+
+# Holsapple (1993) scaling parameters for porous lunar regolith, as used by
+# Madiedo et al. (2019) for lunar impact flashes
+REGOLITH_K1 = 0.2
+REGOLITH_K2 = 0.75
+REGOLITH_KR = 1.1
+REGOLITH_MU = 0.4
+REGOLITH_NU = 0.333
+REGOLITH_STRENGTH = 1000.0  # Pa — cohesion of lunar regolith
+# The regolith is typically 4-15 m thick (McKay et al. 1991, Lunar
+# Sourcebook), and a crater excavates to about a tenth of its transient
+# diameter, so transient craters wider than ~100 m dig into the bedrock below
+# and the regolith scaling no longer applies.
+REGOLITH_MAX_TRANSIENT_DIAMETER = 100.0  # m
 
 
 def transition_diameter(surface_gravity: float = LUNAR_GRAVITY) -> float:
@@ -97,6 +135,7 @@ class ImpactParameters:
     impactor_density: float = DEFAULT_IMPACTOR_DENSITY   # kg/m³
     target_density: float = LUNAR_TARGET_DENSITY         # kg/m³
     surface_gravity: float = LUNAR_GRAVITY               # m/s²
+    target_material: str = "rock"                         # 'rock' or 'regolith'
 
 
 @dataclass
@@ -153,6 +192,8 @@ def validate_parameters(params: ImpactParameters) -> list[ParameterWarning]:
         raise ValidationError("target_density must be > 0.")
     if params.surface_gravity <= 0:
         raise ValidationError("surface_gravity must be > 0.")
+    if params.target_material not in TARGET_MATERIALS:
+        raise ValidationError(f"target_material must be one of {TARGET_MATERIALS}.")
 
     # --- Soft warnings ---
     warnings: list[ParameterWarning] = []
@@ -197,6 +238,24 @@ def validate_parameters(params: ImpactParameters) -> list[ParameterWarning]:
 # ---------------------------------------------------------------------------
 
 MODEL_NAME = "Collins-Pike Lunar Scaling Model v0.2"
+REGOLITH_MODEL_NAME = "Holsapple Regolith-Pike Lunar Scaling Model v0.2"
+
+
+def regolith_rim_diameter(params: ImpactParameters, impactor_mass: float) -> float:
+    """Rim-to-rim diameter (m) in porous regolith, Holsapple (1993) point-source scaling."""
+    mu, nu = REGOLITH_MU, REGOLITH_NU
+    rho_t = params.target_density
+    density_ratio = rho_t / params.impactor_density
+    vertical_velocity = params.impact_velocity * math.sin(math.radians(params.impact_angle))
+
+    pi2 = params.surface_gravity * (params.impactor_diameter / 2.0) / vertical_velocity ** 2
+    pi3 = REGOLITH_STRENGTH / (rho_t * vertical_velocity ** 2)
+    gravity_term = pi2 * density_ratio ** ((6 * nu - 2 - mu) / (3 * mu))
+    strength_term = (REGOLITH_K2 * pi3 * density_ratio ** ((6 * nu - 2) / (3 * mu))) ** ((2 + mu) / 2)
+    pi_v = REGOLITH_K1 * (gravity_term + strength_term) ** (-3 * mu / (2 + mu))
+
+    crater_volume = impactor_mass * pi_v / rho_t
+    return 2.0 * REGOLITH_KR * crater_volume ** (1.0 / 3.0)
 
 
 def run_simulation(params: ImpactParameters) -> SimulationResult:
@@ -223,17 +282,28 @@ def run_simulation(params: ImpactParameters) -> SimulationResult:
     energy = 0.5 * impactor_mass * params.impact_velocity ** 2       # J
 
     # 3. Transient crater diameter — gravity-regime pi-scaling.
-    #    sin^(1/3)θ: only the vertical momentum component drives excavation.
-    density_ratio = params.impactor_density / params.target_density
-    angle_factor = math.sin(math.radians(params.impact_angle)) ** (1.0 / 3.0)
-    transient_diameter = (
-        1.161
-        * density_ratio ** (1.0 / 3.0)
-        * params.impactor_diameter ** 0.78
-        * params.impact_velocity ** 0.44
-        * params.surface_gravity ** -0.22
-        * angle_factor
-    )
+    if params.target_material == "regolith":
+        # Holsapple gives the rim-to-rim diameter; step 4 turns the
+        # transient diameter back into it for simple craters.
+        transient_diameter = regolith_rim_diameter(params, impactor_mass) / 1.25
+        if transient_diameter > REGOLITH_MAX_TRANSIENT_DIAMETER:
+            warnings.append(ParameterWarning(
+                "target_material",
+                "Crater > ~125 m digs through the regolith (typically 4-15 m "
+                "thick) into bedrock; use target_material='rock' instead."
+            ))
+    else:
+        # sin^(1/3)θ: only the vertical momentum component drives excavation.
+        density_ratio = params.impactor_density / params.target_density
+        angle_factor = math.sin(math.radians(params.impact_angle)) ** (1.0 / 3.0)
+        transient_diameter = (
+            1.161
+            * density_ratio ** (1.0 / 3.0)
+            * params.impactor_diameter ** 0.78
+            * params.impact_velocity ** 0.44
+            * params.surface_gravity ** -0.22
+            * angle_factor
+        )
 
     # 4. Final diameter — wall collapse widens the cavity.
     d_c = transition_diameter(params.surface_gravity)
@@ -276,7 +346,7 @@ def run_simulation(params: ImpactParameters) -> SimulationResult:
         ejecta_volume=round(ejecta_volume, 2),
         transient_crater_diameter=round(transient_diameter, 4),
         energy_joules=round(energy, 2),
-        model_name=MODEL_NAME,
+        model_name=REGOLITH_MODEL_NAME if params.target_material == "regolith" else MODEL_NAME,
         warnings=[w.to_dict() for w in warnings],
         crater_type=crater_type,
     )
