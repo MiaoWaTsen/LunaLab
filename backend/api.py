@@ -17,7 +17,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException, Response, Header, Depends
+from fastapi import FastAPI, HTTPException, Response, Header, Depends, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +56,13 @@ from simulation.challenges import (
 from simulation.lunar_ephemeris import moon_illumination
 from simulation.case_studies import CASE_STUDIES, get_case_study, analyze
 from simulation.inference import Observation, PRESETS as INFERENCE_PRESETS, infer
+from simulation.surface_dating import (
+    SITES_BY_ID,
+    change6_analysis,
+    landing_site_ages,
+    landing_site_craters,
+    synthetic_history,
+)
 from terrain.lunar_surface import get_surface_provider
 from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
@@ -540,6 +547,54 @@ def run_inference(req: InferenceRequest, user: dict = Depends(require_user)):
     return infer(obs, posterior_samples=1000)
 
 
+# ---------------------------------------------------------------------------
+# Surface age — crater-count dating
+# ---------------------------------------------------------------------------
+
+# Signed-in only: an old surface means tens of thousands of craters
+@app.get("/api/surface-age/synthetic")
+def get_synthetic_surface(
+    age: float = Query(3.8, ge=0.1, le=4.3, description="Surface age in Gyr"),
+    size_km: float = Query(40.0, ge=10.0, le=60.0),
+    d_min: float = Query(0.4, ge=0.3, le=5.0, description="Smallest crater simulated, km"),
+    seed: int = Query(0, ge=0, le=1_000_000),
+    user: dict = Depends(require_user),
+):
+    try:
+        return synthetic_history(age, size_km, d_min, seed)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@lru_cache(maxsize=None)
+def _change6_analysis() -> dict:
+    return change6_analysis()
+
+
+@app.get("/api/surface-age/change6")
+def get_change6_analysis():
+    return _change6_analysis()
+
+
+@app.get("/api/surface-age/sites")
+def get_landing_site_ages(
+    radius_km: float = Query(100.0, ge=10.0, le=150.0),
+    d_min: float = Query(1.0, ge=1.0, le=50.0),
+    d_max: float = Query(20.0, gt=1.0, le=300.0),
+):
+    try:
+        return landing_site_ages(radius_km, d_min, d_max)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/surface-age/sites/{site_id}")
+def get_landing_site_craters(site_id: str, radius_km: float = Query(100.0, ge=10.0, le=150.0)):
+    if site_id not in SITES_BY_ID:
+        raise HTTPException(status_code=404, detail="Landing site not found.")
+    return landing_site_craters(site_id, radius_km)
+
+
 @app.get("/api/moon/terrain-texture")
 def get_moon_terrain_texture():
     """Return an 8-bit raw displacement map for 3D sphere visualization."""
@@ -602,6 +657,11 @@ def serve_case_study():
 @app.get("/inference")
 def serve_inference():
     return FileResponse(os.path.join(_FRONTEND_DIR, "inference.html"))
+
+
+@app.get("/surface-age")
+def serve_surface_age():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "surface-age.html"))
 
 
 @app.get("/login")

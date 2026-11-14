@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Date a lunar surface by counting its craters.">
+    <title>LunaLab — Surface Age</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <style>
+        .sim-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: var(--space-lg);
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .sim-layout { grid-template-columns: minmax(0, 1fr); }
+        }
+        .surface-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 560px;
+            aspect-ratio: 1;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            border: 1px solid var(--border-primary);
+        }
+        #surface { width: 100%; height: 100%; display: block; }
+        .surface-clock {
+            position: absolute;
+            left: var(--space-sm);
+            top: var(--space-sm);
+            padding: 4px 10px;
+            border-radius: var(--radius-sm);
+            background: rgba(11, 14, 20, 0.75);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-heading);
+        }
+        .surface-scale {
+            position: absolute;
+            right: var(--space-sm);
+            bottom: var(--space-sm);
+            font-size: 0.75rem;
+            color: var(--text-heading);
+            text-align: center;
+        }
+        .surface-scale__bar { height: 3px; background: var(--text-heading); margin-bottom: 2px; }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-md);
+            align-items: end;
+            margin-top: var(--space-md);
+        }
+        .controls label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: var(--space-xs);
+        }
+        .controls input[type="range"] { width: 200px; max-width: 100%; }
+        .explain { color: var(--text-secondary); line-height: 1.7; }
+        .explain strong { color: var(--text-heading); }
+        .chart-small { height: 300px; }
+        .fit-table td, .fit-table th { font-family: var(--font-mono); font-size: 0.85rem; }
+        .verdict-good { color: var(--accent-emerald); }
+        .verdict-bad { color: var(--accent-rose); }
+        .refs { font-size: 0.85rem; color: var(--text-muted); padding-left: var(--space-lg); }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
+                <li><a href="/case-study" class="navbar__link">Case Study</a></li>
+                <li><a href="/inference" class="navbar__link">Inference</a></li>
+                <li><a href="/surface-age" class="navbar__link navbar__link--active">Surface Age</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Surface Age from Crater Counts</h1>
+            <p class="page-header__subtitle">
+                A fresh lava plain starts with no craters and collects them at a known rate. Count them,
+                and you can read off how long it has been exposed — the way ages are assigned to almost
+                every surface in the Solar System that no sample has come from.
+            </p>
+        </div>
+
+        <!-- 1. Synthetic surface -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">☄️</span> Watch a surface age</h2>
+                <p class="explain">
+                    A 40 × 40 km plain bombarded by the lunar impact record: crater sizes from the
+                    Neukum (2001) production function, impact rate from its chronology function.
+                    A crater whose centre a later, larger crater lands on is destroyed.
+                </p>
+                <div class="controls">
+                    <div>
+                        <label for="age-slider">Surface age: <span id="age-label">4.2</span> billion years</label>
+                        <input type="range" id="age-slider" min="0.5" max="4.3" step="0.1" value="4.2">
+                    </div>
+                    <button class="btn btn--secondary" id="btn-new">New surface</button>
+                    <button class="btn btn--primary" id="btn-play">▶ Play history</button>
+                </div>
+
+                <div class="sim-layout mt-lg">
+                    <div>
+                        <div class="surface-wrap">
+                            <canvas id="surface" aria-label="Simulated cratered surface"></canvas>
+                            <div class="surface-clock" id="clock">—</div>
+                            <div class="surface-scale"><div class="surface-scale__bar" id="scale-bar"></div>10 km</div>
+                        </div>
+                        <div class="controls">
+                            <div style="flex:1;">
+                                <label for="time-slider">Time: <span id="time-label">today</span></label>
+                                <input type="range" id="time-slider" min="0" max="1000" value="1000" style="width:100%;">
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="chart-small" id="chart-history"></div>
+                        <p class="explain" style="font-size:0.85rem;" id="history-note"></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">📏</span> Reading the age back</h2>
+                <p class="explain">
+                    Count today's craters in a size range and ask which age makes that count most likely
+                    (a Poisson likelihood). The answer depends on the smallest crater counted: on an old
+                    surface the small craters have <strong>saturated</strong> — new ones destroy as many as
+                    they add — so they stop recording time.
+                </p>
+                <div class="sim-layout mt-md">
+                    <div class="chart-container" id="chart-synthetic-sfd"></div>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table fit-table">
+                            <thead><tr><th>Smallest crater</th><th>Count</th><th>Age (90%)</th><th></th></tr></thead>
+                            <tbody id="fit-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Chang'e-6 -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">🧪</span> Real test: the Chang'e-6 landing site</h2>
+                <p class="explain" id="ce6-intro">
+                    Chang'e-6 returned basalts from the far side in 2024, dated in the laboratory to
+                    <strong>2.807 billion years</strong>. Those samples played no part in calibrating the
+                    chronology, so this is an independent test. The craters are an expert count of 52 km²
+                    around the landing site, down to 30 m.
+                </p>
+                <div class="sim-layout mt-md">
+                    <div class="chart-container" id="chart-ce6-age"></div>
+                    <div class="chart-container" id="chart-ce6-sfd"></div>
+                </div>
+                <p class="explain mt-md" id="ce6-finding"></p>
+            </div>
+        </section>
+
+        <!-- 3. Pitfall -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">⚠️</span> Pitfall: counting in the wrong place</h2>
+                <p class="explain">
+                    The same method on seven sampled landing sites, but counting every catalogued crater
+                    (Robbins 2018, ≥ 1 km) in a circle around each one, instead of on the mapped lava flow
+                    that was sampled. Where the surroundings are as old as the sampled lava, the age
+                    survives; where the sampled flow is younger than its neighbours, the circle dates the
+                    neighbours instead.
+                </p>
+                <div class="controls">
+                    <div>
+                        <label for="radius-slider">Circle radius: <span id="radius-label">100</span> km</label>
+                        <input type="range" id="radius-slider" min="25" max="150" step="5" value="100">
+                    </div>
+                </div>
+                <div class="chart-container mt-md" id="chart-sites"></div>
+                <p class="explain mt-md" id="sites-finding"></p>
+            </div>
+        </section>
+
+        <!-- Method -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">🧮</span> Method and data</h2>
+                <div class="explain">
+                    <p><strong>Production function</strong> N(≥D) ∝ 10^(Σ aₖ (log D)ᵏ), 11th-degree polynomial
+                       (Neukum et al. 2001). <strong>Chronology</strong> N(≥1 km) = a(e^(bT) − 1) + cT:
+                       Neukum et al. (2001), and Yue et al. (2022) recalibrated with Chang'e-5.</p>
+                    <p class="mt-md"><strong>Age inference:</strong> with the size distribution fixed, the
+                       number of craters in the fitted range is all the data says about the age; its Poisson
+                       likelihood over a 1 Myr age grid gives the posterior (Michael et al. 2016). A
+                       calibration test checks that the 90% interval holds the true age of synthetic surfaces
+                       ~90% of the time.</p>
+                </div>
+                <ul class="refs mt-md">
+                    <li>Neukum, Ivanov &amp; Hartmann (2001), Space Sci. Rev. 96, 55-86</li>
+                    <li>Yue et al. (2022), Nature Astronomy 6, 541-545</li>
+                    <li>Michael et al. (2016), Icarus 277, 279-285</li>
+                    <li>Stöffler &amp; Ryder (2001), Space Sci. Rev. 96, 9-54 — Apollo and Luna sample ages</li>
+                    <li>Li et al. (2021), Nature 600, 54-58 — Chang'e-5 age</li>
+                    <li>Zhang et al. (2025), Nature 643, 356-360 — Chang'e-6 age</li>
+                    <li>Crater catalogue: Robbins (2018), via Zenodo record 21500453, CC BY 4.0</li>
+                    <li>Chang'e-6 crater count: Craterstats sample data (G. Michael), BSD 3-Clause</li>
+                </ul>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js?v=5"></script>
+<script>
+const COLORS = { formed: '#a0aaba', visible: '#67d4e8', truth: '#f47185', sample: '#f47185',
+                 neukum2001: '#67d4e8', yue2022: '#f2c66d' };
+const ISOCHRON_COLOR = 'rgba(160, 170, 186, 0.35)';
+const CHRON_LABELS = { neukum2001: 'Neukum (2001)', yue2022: 'Yue (2022)' };
+
+let sim = null;          // current synthetic surface
+let timeAgo = 0;         // Gyr before present shown on the canvas
+let playing = false;
+let seed = 0;
+
+const canvas = document.getElementById('surface');
+const ctx = canvas.getContext('2d');
+
+// ---------------------------------------------------------------------------
+// Synthetic surface
+// ---------------------------------------------------------------------------
+
+async function loadSurface() {
+    const age = Number(document.getElementById('age-slider').value);
+    stopPlaying();
+    document.getElementById('clock').textContent = 'Bombarding…';
+    try {
+        sim = await apiGet(`/api/surface-age/synthetic?age=${age}&seed=${seed}`);
+    } catch (e) {
+        showToast(`Simulation failed: ${e.message}`, 'error');
+        return;
+    }
+    setTime(0);
+    renderHistory();
+    renderSyntheticFits();
+}
+
+function sizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    if (sim) {
+        document.getElementById('scale-bar').style.width = `${rect.width * 10 / sim.size_km}px`;
+    }
+}
+
+function drawSurface() {
+    if (!sim) return;
+    const w = canvas.width, scale = w / sim.size_km;
+    ctx.fillStyle = '#5b5f66';
+    ctx.fillRect(0, 0, w, w);
+
+    const c = sim.craters;
+    let visible = 0;
+    // Oldest first, so younger craters draw over older ones
+    for (let i = 0; i < c.x.length; i++) {
+        if (c.formed[i] < timeAgo) break;                         // not formed yet (sorted oldest first)
+        if (c.erased[i] !== null && c.erased[i] >= timeAgo) continue;  // already destroyed
+        visible++;
+        const x = c.x[i] * scale, y = c.y[i] * scale, r = Math.max(c.diameter[i] / 2 * scale, 0.6);
+        // Sun from the left: shadowed left wall, lit right wall, bright rim
+        const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.2, r * 0.1, x, y, r);
+        g.addColorStop(0, '#2e3238');
+        g.addColorStop(0.75, '#4a4e55');
+        g.addColorStop(1, '#8d929a');
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+    }
+    document.getElementById('clock').textContent =
+        `${timeAgo < 0.005 ? 'today' : `${timeAgo.toFixed(2)} Gyr ago`} · ${visible.toLocaleString()} craters`;
+}
+
+function setTime(t) {
+    timeAgo = Math.max(0, Math.min(sim.age, t));
+    document.getElementById('time-slider').value = Math.round((1 - timeAgo / sim.age) * 1000);
+    document.getElementById('time-label').textContent =
+        timeAgo < 0.005 ? 'today' : `${timeAgo.toFixed(2)} billion years ago`;
+    drawSurface();
+    if (document.getElementById('chart-history').data) {
+        Plotly.relayout('chart-history', { 'shapes[0].x0': timeAgo, 'shapes[0].x1': timeAgo });
+    }
+}
+
+function stopPlaying() {
+    playing = false;
+    document.getElementById('btn-play').textContent = '▶ Play history';
+}
+
+function play() {
+    if (playing) { stopPlaying(); return; }
+    playing = true;
+    document.getElementById('btn-play').textContent = '⏸ Pause';
+    // Pace by craters formed as well as by time: almost all craters form in
+    // the first few hundred million years, which a linear clock would skip
+    // through in a second
+    const h = sim.history, total = Math.max(h.formed[h.formed.length - 1], 1);
+    const progress = h.time_ago.map((t, i) => 0.7 * h.formed[i] / total + 0.3 * (sim.age - t) / sim.age);
+    const timeAt = p => {
+        const i = progress.findIndex(x => x >= p);
+        if (i <= 0) return i === 0 ? h.time_ago[0] : 0;
+        const f = (p - progress[i - 1]) / (progress[i] - progress[i - 1] || 1);
+        return h.time_ago[i - 1] + f * (h.time_ago[i] - h.time_ago[i - 1]);
+    };
+
+    const duration = 10000;   // ms for the whole history
+    let p = timeAgo < 0.005 ? 0 : progress[h.time_ago.findIndex(t => t <= timeAgo)] ?? 0;
+    let last = performance.now();
+    const step = now => {
+        if (!playing) return;
+        p = Math.min(1, p + (now - last) / duration);
+        last = now;
+        setTime(timeAt(p));
+        if (p >= 1) { setTime(0); stopPlaying(); return; }
+        requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+}
+
+function renderHistory() {
+    const h = sim.history;
+    Plotly.newPlot('chart-history', [
+        { x: h.time_ago, y: h.formed, name: 'Craters formed', mode: 'lines', line: { color: COLORS.formed, width: 2 } },
+        { x: h.time_ago, y: h.visible, name: 'Still visible', mode: 'lines', line: { color: COLORS.visible, width: 2.5 } },
+    ], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater record through time', font: { size: 13, color: '#dfe4ec' }, x: 0.01, xanchor: 'left' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Billion years ago', type: 'linear', autorange: 'reversed' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Craters ≥ ' + formatNumber(sim.d_min, 1) + ' km' },
+        shapes: [{ type: 'line', yref: 'paper', y0: 0, y1: 1, x0: timeAgo, x1: timeAgo,
+                   line: { color: COLORS.truth, width: 1.5, dash: 'dot' } }],
+        legend: { orientation: 'h', y: -0.3 },
+    }, PLOTLY_CONFIG);
+
+    const formed = h.formed[h.formed.length - 1], visible = h.visible[h.visible.length - 1];
+    const firstHalf = h.formed[h.time_ago.findIndex(t => t <= sim.age - 0.5)] ?? formed;
+    document.getElementById('history-note').innerHTML =
+        `${formed.toLocaleString()} craters formed; ${visible.toLocaleString()} survive today. ` +
+        `<strong>${Math.round(firstHalf / Math.max(formed, 1) * 100)}%</strong> of them formed in the first 0.5 billion years: ` +
+        `the impact rate was far higher before ~3.5 billion years ago.`;
+}
+
+function ageCell(fit) {
+    return `${fit.median.toFixed(2)} (${fit.p5.toFixed(2)}–${fit.p95.toFixed(2)})`;
+}
+
+function renderSyntheticFits() {
+    const iso = sim.isochrons;
+    const traces = Object.entries(iso.curves).map(([age, y]) => ({
+        x: iso.diameter, y, mode: 'lines', name: `${age} Ga`, showlegend: false,
+        line: { color: ISOCHRON_COLOR, width: 1 }, hoverinfo: 'skip',
+    }));
+    traces.push({
+        x: sim.sfd.diameter, y: sim.sfd.density, mode: 'markers', name: 'Craters today',
+        marker: { color: COLORS.visible, size: 4 },
+        hovertemplate: '≥ %{x:.2f} km: %{y:.3g} per km²<extra></extra>',
+    });
+    const annotations = Object.entries(iso.curves).map(([age, y]) => ({
+        x: Math.log10(iso.diameter[0]), y: Math.log10(y[0]), text: `${age} Ga`, showarrow: false,
+        xanchor: 'right', font: { size: 10, color: '#6b7486' },
+    }));
+    Plotly.newPlot('chart-synthetic-sfd', traces, {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Size-frequency distribution with isochrons', font: { size: 13, color: '#dfe4ec' }, x: 0.01, xanchor: 'left' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Crater diameter D (km)', type: 'log' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Craters ≥ D per km²', type: 'log', exponentformat: 'power' },
+        margin: { ...PLOTLY_LAYOUT_DEFAULTS.margin, l: 70 },
+        annotations,
+        showlegend: false,
+    }, PLOTLY_CONFIG);
+
+    document.getElementById('fit-rows').innerHTML = sim.fits.map(f => {
+        const ok = f.p5 <= sim.age && sim.age <= f.p95;
+        const verdict = ok ? '<span class="verdict-good">✓</span>'
+            : f.median < sim.age ? '<span class="verdict-bad">too young</span>' : '<span class="verdict-bad">too old</span>';
+        return `<tr><td>≥ ${formatNumber(f.d_min, 2)} km</td><td>${Math.round(f.count)}</td>
+                <td>${ageCell(f)}</td><td>${verdict}</td></tr>`;
+    }).join('') + `<tr><td colspan="4" style="color:var(--text-muted);">True age: ${sim.age.toFixed(1)} Gyr</td></tr>`;
+}
+
+// ---------------------------------------------------------------------------
+// Chang'e-6
+// ---------------------------------------------------------------------------
+
+async function loadChange6() {
+    let data;
+    try {
+        data = await apiGet('/api/surface-age/change6');
+    } catch (e) {
+        showToast(`Chang'e-6 data failed: ${e.message}`, 'error');
+        return;
+    }
+    const sample = data.site.sample_age;
+
+    const traces = Object.entries(data.fits).map(([key, fits], k) => ({
+        x: fits.map(f => f.d_min * 1000 * (k ? 1.03 : 0.97)),   // nudge apart
+        y: fits.map(f => f.median),
+        error_y: { type: 'data', symmetric: false,
+                   array: fits.map(f => f.p95 - f.median), arrayminus: fits.map(f => f.median - f.p5),
+                   color: COLORS[key], thickness: 1.5 },
+        mode: 'markers+lines', name: CHRON_LABELS[key],
+        marker: { color: COLORS[key], size: 8 }, line: { color: COLORS[key], width: 1, dash: 'dot' },
+        hovertemplate: '≥ %{x:.0f} m: %{y:.2f} Gyr<extra>' + CHRON_LABELS[key] + '</extra>',
+    }));
+    Plotly.newPlot('chart-ce6-age', traces, {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Crater-count age vs smallest crater counted', font: { size: 13, color: '#dfe4ec' }, x: 0.01, xanchor: 'left' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Smallest crater counted (m)', type: 'log' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Age (Gyr)', range: [0, 3.6] },
+        shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: sample, y1: sample,
+                   line: { color: COLORS.sample, width: 2, dash: 'dash' } }],
+        annotations: [{ xref: 'paper', x: 0.02, y: sample, yanchor: 'bottom', xanchor: 'left', showarrow: false,
+                        text: `Lab age of the samples: ${sample} Gyr`, font: { color: COLORS.sample } }],
+        legend: { orientation: 'h', y: -0.3 },
+    }, PLOTLY_CONFIG);
+
+    const iso = data.isochrons;
+    const sfdTraces = Object.entries(iso.curves).map(([age, y]) => ({
+        x: iso.diameter.map(d => d * 1000), y, mode: 'lines', showlegend: false,
+        line: { color: ISOCHRON_COLOR, width: 1 }, hoverinfo: 'skip',
+    }));
+    sfdTraces.push({
+        x: data.sfd.diameter.map(d => d * 1000), y: data.sfd.density, mode: 'markers', name: 'Chang\'e-6 craters',
+        marker: { color: COLORS.neukum2001, size: 4 },
+        hovertemplate: '≥ %{x:.0f} m: %{y:.3g} per km²<extra></extra>',
+    });
+    Plotly.newPlot('chart-ce6-sfd', sfdTraces, {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Measured craters against isochrons (1–4 Ga)', font: { size: 13, color: '#dfe4ec' }, x: 0.01, xanchor: 'left' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Crater diameter D (m)', type: 'log' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Craters ≥ D per km²', type: 'log', exponentformat: 'power' },
+        margin: { ...PLOTLY_LAYOUT_DEFAULTS.margin, l: 70 },
+        showlegend: false,
+    }, PLOTLY_CONFIG);
+
+    const pick = key => data.fits[key].find(f => Math.abs(f.d_min - 0.25) < 1e-9);
+    const n = pick('neukum2001'), y = pick('yue2022');
+    const inside = f => f.p5 <= sample && sample <= f.p95;
+    document.getElementById('ce6-finding').innerHTML =
+        `<strong>Small craters read young:</strong> below ~200 m the counts sit on a shallower line than the isochrons —
+         craters this small are erased by later impacts as fast as they form, the saturation seen in the simulation above.
+         <strong>Counting craters ≥ 250 m</strong> (${Math.round(n.count)} of them):
+         Neukum gives ${ageCell(n)} Gyr ${inside(n) ? '— the lab age is inside the 90% interval' : ''};
+         Yue, recalibrated with Chang'e-5, gives ${ageCell(y)} Gyr ${inside(y) ? '— also consistent' : ''}.
+         Only ${Math.round(n.count)} craters, so the interval is wide: a larger count area would narrow it.`;
+}
+
+// ---------------------------------------------------------------------------
+// Landing sites
+// ---------------------------------------------------------------------------
+
+async function loadSites() {
+    const radius = Number(document.getElementById('radius-slider').value);
+    document.getElementById('radius-label').textContent = radius;
+    let data;
+    try {
+        data = await apiGet(`/api/surface-age/sites?radius_km=${radius}`);
+    } catch (e) {
+        showToast(`Landing-site data failed: ${e.message}`, 'error');
+        return;
+    }
+    const names = data.sites.map(s => s.name);
+    const ages = data.sites.map(s => s.ages.neukum2001);
+    Plotly.newPlot('chart-sites', [
+        {
+            x: names, y: ages.map(a => a.median), mode: 'markers', name: `Crater count, ${radius} km circle`,
+            error_y: { type: 'data', symmetric: false, array: ages.map(a => a.p95 - a.median),
+                       arrayminus: ages.map(a => a.median - a.p5), color: COLORS.neukum2001 },
+            marker: { color: COLORS.neukum2001, size: 10 },
+            customdata: ages.map(a => Math.round(a.count)),
+            hovertemplate: '%{x}: %{y:.2f} Gyr from %{customdata} craters<extra></extra>',
+        },
+        {
+            x: data.sites.flatMap(s => s.sample_ages.map(() => s.name)),
+            y: data.sites.flatMap(s => s.sample_ages),
+            mode: 'markers', name: 'Lab age of the samples',
+            // Open, so a crater-count marker at the same age shows through
+            marker: { color: COLORS.sample, size: 14, symbol: 'diamond-open', line: { width: 2.5 } },
+            hovertemplate: '%{x}: samples %{y:.2f} Gyr<extra></extra>',
+        },
+    ], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Age (Gyr)', range: [1.5, 4.3] },
+        legend: { orientation: 'h', y: -0.2 },
+    }, PLOTLY_CONFIG);
+
+    // Error against the youngest sample age of each site
+    const errors = data.sites.map(s => ({ name: s.name, err: s.ages.neukum2001.median - Math.min(...s.sample_ages),
+                                          count: s.ages.neukum2001.count }));
+    const worst = errors.reduce((a, b) => (Math.abs(b.err) > Math.abs(a.err) ? b : a));
+    const fewest = errors.reduce((a, b) => (b.count < a.count ? b : a));
+    document.getElementById('sites-finding').innerHTML =
+        `At ${radius} km the worst is <strong>${worst.name}</strong>, ` +
+        `${formatNumber(Math.abs(worst.err), 2)} billion years too ${worst.err > 0 ? 'old' : 'young'}. ` +
+        `Shrink the circle and less foreign terrain gets in, but fewer craters are left to count ` +
+        `(${fewest.name}: ${Math.round(fewest.count)}), so the noise grows instead. ` +
+        `The way out is the one crater counters use: map the lava flow, and count only on it.`;
+}
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+
+document.getElementById('age-slider').addEventListener('input', e => {
+    document.getElementById('age-label').textContent = Number(e.target.value).toFixed(1);
+});
+document.getElementById('age-slider').addEventListener('change', loadSurface);
+document.getElementById('btn-new').addEventListener('click', () => { seed += 1; loadSurface(); });
+document.getElementById('btn-play').addEventListener('click', play);
+document.getElementById('time-slider').addEventListener('input', e => {
+    stopPlaying();
+    setTime(sim.age * (1 - Number(e.target.value) / 1000));
+});
+let radiusTimer = null;
+document.getElementById('radius-slider').addEventListener('input', e => {
+    document.getElementById('radius-label').textContent = e.target.value;
+    clearTimeout(radiusTimer);
+    radiusTimer = setTimeout(loadSites, 200);
+});
+window.addEventListener('resize', () => { sizeCanvas(); drawSurface(); });
+
+sizeCanvas();
+loadSurface().then(sizeCanvas).then(drawSurface);
+loadChange6();
+loadSites();
+</script>
+</body>
+</html>

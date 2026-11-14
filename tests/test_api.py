@@ -420,3 +420,46 @@ class TestInference:
     def test_requires_login(self):
         with TestClient(app) as anonymous:
             assert anonymous.post("/api/inference", json={"crater_diameter": 10}).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Surface age
+# ---------------------------------------------------------------------------
+
+class TestSurfaceAge:
+    def test_synthetic_surface(self, client):
+        res = client.get("/api/surface-age/synthetic", params={"age": 3.5, "seed": 2})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["age"] == 3.5
+        assert len(body["craters"]["x"]) == body["history"]["formed"][-1]
+
+    @pytest.mark.parametrize("params", [{"age": 4.5}, {"age": 0}, {"size_km": 500}, {"d_min": 0.01}])
+    def test_synthetic_limits(self, client, params):
+        assert client.get("/api/surface-age/synthetic", params=params).status_code == 422
+
+    def test_synthetic_requires_login(self):
+        with TestClient(app) as anonymous:
+            assert anonymous.get("/api/surface-age/synthetic").status_code == 401
+
+    def test_change6(self, client):
+        body = client.get("/api/surface-age/change6").json()
+        assert body["site"]["sample_age"] == 2.807
+        assert set(body["fits"]) == {"neukum2001", "yue2022"}
+
+    def test_sites(self, client):
+        body = client.get("/api/surface-age/sites", params={"radius_km": 60}).json()
+        assert body["radius_km"] == 60
+        assert len(body["sites"]) == 7
+
+    def test_sites_rejects_bad_range(self, client):
+        assert client.get("/api/surface-age/sites", params={"d_min": 10, "d_max": 5}).status_code == 422
+        assert client.get("/api/surface-age/sites", params={"radius_km": 1000}).status_code == 422
+
+    def test_site_craters(self, client):
+        body = client.get("/api/surface-age/sites/change5", params={"radius_km": 50}).json()
+        assert body["name"] == "Chang'e-5"
+        assert len(body["craters"]["diameter"]) == len(body["sfd"]["diameter"])
+
+    def test_unknown_site_is_404(self, client):
+        assert client.get("/api/surface-age/sites/apollo99").status_code == 404

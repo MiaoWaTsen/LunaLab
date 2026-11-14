@@ -17,6 +17,7 @@ LunaLab is a modular, web-based platform for simulating lunar impact craters usi
 5. **Compare Experiments** — Select multiple experiments for side-by-side visual comparison
 6. **Case Study** — Test the model against the 17 March 2013 impact, where both the flash and the LRO crater were measured: observing geometry from the ephemeris, Monte Carlo uncertainty propagation, and inversion for the luminous efficiency η
 7. **Impactor Inference** — Bayesian inversion from an observed crater back to the impactor: posterior over size, velocity, angle and density, the size–speed degeneracy, and (for impact flashes) the luminous efficiency; validated by simulation-based calibration
+8. **Surface Age** — Date a surface by counting its craters (Neukum 2001 production and chronology functions, Poisson likelihood): watch a synthetic plain collect craters over 4 billion years, see small craters saturate, then test the method on the Chang'e-6 landing site against its 2.807 Ga sample age
 
 ---
 
@@ -51,7 +52,10 @@ LunaLab/
 │   ├── __init__.py
 │   ├── crater_model.py      # Crater scaling (Collins/Pike)
 │   ├── case_studies.py      # Model vs. the observed 2013-03-17 impact
-│   └── inference.py         # Bayesian crater → impactor inversion
+│   ├── inference.py         # Bayesian crater → impactor inversion
+│   ├── chronology.py        # Crater production/chronology functions, age inference
+│   ├── surface_dating.py    # Synthetic bombardment, Chang'e-6, landing sites
+│   └── data/                # Crater counts (built by scripts/build_crater_data.py)
 │
 ├── database/                # Data persistence layer
 │   ├── __init__.py
@@ -305,3 +309,16 @@ In production, store data in PostgreSQL instead:
 Without `DATABASE_URL`, LunaLab uses the local SQLite file as before.
 Run the test suite with `DATABASE_URL` unset, so it never touches the
 production database.
+
+---
+
+## Data Sources
+
+| File | Source | License |
+|------|--------|---------|
+| `terrain/data/lola_ldem4_m.npy` | NASA LRO LOLA LDEM_4 | Public domain |
+| `simulation/data/landing_site_craters.json` | Robbins (2018) lunar crater database, via [Zenodo record 21500453](https://zenodo.org/records/21500453) | CC BY 4.0 |
+| `simulation/data/change6_count.json` | Chang'e-6 landing-site crater count, [Craterstats](https://github.com/ggmichael/craterstats) sample data (G. Michael) | BSD 3-Clause |
+
+The crater files are rebuilt from the originals with
+`python scripts/build_crater_data.py ROBBINS_CSV CHANGE6_SCC` (see the script for download links).
