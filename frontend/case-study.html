@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — The crater model tested against the 17 March 2013 lunar impact.">
+    <title>LunaLab — Case Study: 17 March 2013</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <style>
+        .chain {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: stretch;
+            gap: var(--space-sm);
+        }
+        .chain__step {
+            flex: 1 1 140px;
+            padding: var(--space-md);
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+        }
+        .chain__value {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            color: var(--text-heading);
+        }
+        .chain__label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: var(--space-xs);
+        }
+        .chain__arrow {
+            align-self: center;
+            color: var(--text-muted);
+        }
+        .check {
+            display: flex;
+            gap: var(--space-sm);
+            align-items: baseline;
+            margin-top: var(--space-sm);
+        }
+        .check--pass .check__mark { color: var(--accent-emerald); }
+        .check--fail .check__mark { color: var(--accent-rose); }
+        .finding {
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        .finding strong { color: var(--text-heading); }
+        .refs {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            padding-left: var(--space-lg);
+        }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
+                <li><a href="/case-study" class="navbar__link navbar__link--active">Case Study</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Case Study: the 17 March 2013 Impact</h1>
+            <p class="page-header__subtitle">
+                NASA's cameras saw the flash; the Lunar Reconnaissance Orbiter later photographed the crater.
+                Does our model connect the two?
+            </p>
+        </div>
+
+        <div id="cs-loading" class="text-center mt-lg" style="color:var(--text-muted);">
+            Running the Monte Carlo analysis…
+        </div>
+
+        <div id="cs-error" class="hidden text-center mt-lg" style="color:var(--accent-rose);"></div>
+
+        <div id="cs-content" class="hidden">
+
+            <!-- Observed facts -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🔭</span> What was observed</h2>
+                    <div class="results-grid mt-lg">
+                        <div class="result-metric">
+                            <div class="result-metric__value" id="obs-time">—</div>
+                            <div class="result-metric__label">Flash (UTC)</div>
+                        </div>
+                        <div class="result-metric">
+                            <div class="result-metric__value" id="obs-site">—</div>
+                            <div class="result-metric__label">Impact site</div>
+                        </div>
+                        <div class="result-metric">
+                            <div class="result-metric__value" id="obs-light">—</div>
+                            <div class="result-metric__label">Luminous energy</div>
+                        </div>
+                        <div class="result-metric">
+                            <div class="result-metric__value" id="obs-velocity">—</div>
+                            <div class="result-metric__label">Velocity (Virginid stream)</div>
+                        </div>
+                        <div class="result-metric">
+                            <div class="result-metric__value" id="obs-crater">—</div>
+                            <div class="result-metric__label">Crater measured by LRO</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Observing geometry -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🌒</span> Could Earth have seen it?</h2>
+                    <p class="finding">
+                        A flash is only detectable on the unlit part of the Moon, from an Earth above the
+                        site's horizon. LunaLab's own ephemeris (Meeus), with no knowledge of the event,
+                        recomputes the sky at the impact site:
+                    </p>
+                    <div id="geometry-checks"></div>
+                </div>
+            </section>
+
+            <!-- Nominal chain -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">⛓️</span> From flash to crater</h2>
+                    <p class="finding">
+                        The published inputs, step by step. The weakest link is the luminous efficiency η:
+                        the fraction of kinetic energy that turns into light, never measured at these speeds.
+                    </p>
+                    <div style="margin-top:var(--space-md);">
+                        <label for="material-select" style="color:var(--text-muted);">Target scaling:</label>
+                        <select id="material-select" class="form-input" style="width:auto; display:inline-block;">
+                            <option value="regolith">Porous regolith (Holsapple)</option>
+                            <option value="rock">Competent rock (Collins)</option>
+                        </select>
+                    </div>
+                    <div class="chain mt-md" id="chain"></div>
+                </div>
+            </section>
+
+            <!-- Monte Carlo -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🎲</span> Prediction with uncertainty</h2>
+                    <p class="finding" id="mc-caption"></p>
+                    <div class="chart-container" id="chart-mc"></div>
+                </div>
+            </section>
+
+            <!-- Inversion -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🔄</span> Inverting the model: what η fits?</h2>
+                    <p class="finding">
+                        Run the chain backwards: which luminous efficiency would make each model predict
+                        exactly the crater LRO measured?
+                    </p>
+                    <div class="chart-container" id="chart-eta"></div>
+                </div>
+            </section>
+
+            <!-- Findings -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">📝</span> Findings</h2>
+                    <div class="finding" id="findings"></div>
+                    <h3 class="mt-lg" style="color:var(--text-heading); font-size:0.95rem;">References</h3>
+                    <ul class="refs" id="refs"></ul>
+                    <p class="finding" style="font-size:0.85rem;" id="assumptions"></p>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js?v=5"></script>
+<script>
+const MODEL_LABELS = { regolith: 'Porous regolith', rock: 'Competent rock' };
+const MODEL_COLORS = { regolith: '#67d4e8', rock: '#f2c66d' };
+const OBSERVED_COLOR = '#f47185';
+
+let analysis = null;
+
+loadCaseStudy('2013-03-17');
+
+async function loadCaseStudy(id) {
+    try {
+        analysis = await apiGet(`/api/case-studies/${id}`);
+    } catch (e) {
+        document.getElementById('cs-loading').classList.add('hidden');
+        const error = document.getElementById('cs-error');
+        error.textContent = `Failed to load the case study: ${e.message}`;
+        error.classList.remove('hidden');
+        return;
+    }
+    document.getElementById('cs-loading').classList.add('hidden');
+    document.getElementById('cs-content').classList.remove('hidden');
+
+    renderObserved();
+    renderGeometry();
+    renderChain('regolith');
+    renderMonteCarlo();
+    renderEtaSweep();
+    renderFindings();
+
+    document.getElementById('material-select').addEventListener('change', e => renderChain(e.target.value));
+}
+
+function hemisphere(value, pos, neg) {
+    return `${Math.abs(value).toFixed(2)}° ${value >= 0 ? pos : neg}`;
+}
+
+function renderObserved() {
+    const ev = analysis.event;
+    document.getElementById('obs-time').textContent = ev.time.slice(0, 19).replace('T', ' ');
+    document.getElementById('obs-site').textContent =
+        `${hemisphere(ev.latitude, 'N', 'S')}, ${hemisphere(ev.longitude, 'E', 'W')}`;
+    document.getElementById('obs-light').textContent = formatEnergy(ev.luminous_energy);
+    document.getElementById('obs-velocity').textContent = `${formatNumber(ev.velocity / 1000, 1)} km/s`;
+    document.getElementById('obs-crater').textContent = formatLength(ev.observed_diameter);
+}
+
+function renderGeometry() {
+    const g = analysis.geometry;
+    const check = (ok, text) => `
+        <div class="check ${ok ? 'check--pass' : 'check--fail'}">
+            <span class="check__mark">${ok ? '✓' : '✗'}</span>
+            <span class="finding">${text}</span>
+        </div>`;
+    document.getElementById('geometry-checks').innerHTML =
+        check(g.site_in_darkness,
+              `Sun ${formatNumber(Math.abs(g.sun_elevation), 1)}° ${g.sun_elevation < 0 ? 'below' : 'above'} the horizon —
+               the site was ${g.site_in_darkness ? 'in lunar night' : 'in daylight'}
+               (${g.phase_name}, ${Math.round(g.illuminated_fraction * 100)}% lit)`) +
+        check(g.earth_above_horizon,
+              `Earth ${formatNumber(Math.abs(g.earth_elevation), 1)}° ${g.earth_elevation > 0 ? 'above' : 'below'} the horizon —
+               the site ${g.earth_above_horizon ? 'faced Earth' : 'was hidden from Earth'}`);
+}
+
+function renderChain(material) {
+    const n = analysis.models[material].nominal;
+    const steps = [
+        [formatEnergy(n.luminous_energy), 'Light from the flash'],
+        [formatScientific(n.luminous_efficiency), 'η (Suggs et al. 2014)'],
+        [formatEnergy(n.kinetic_energy), 'Kinetic energy'],
+        [`${formatNumber(n.impactor_mass, 1)} kg`, `Mass · ⌀ ${formatNumber(n.impactor_diameter * 100, 0)} cm`],
+        [formatLength(n.crater_diameter), `Predicted crater (${MODEL_LABELS[material].toLowerCase()})`],
+    ];
+    document.getElementById('chain').innerHTML = steps.map(([value, label], i) => `
+        ${i ? '<div class="chain__arrow">→</div>' : ''}
+        <div class="chain__step">
+            <div class="chain__value">${value}</div>
+            <div class="chain__label">${label}</div>
+        </div>`).join('');
+}
+
+function renderMonteCarlo() {
+    const a = analysis.assumptions;
+    const observed = analysis.event.observed_diameter;
+    document.getElementById('mc-caption').textContent =
+        `${a.samples.toLocaleString()} impacts, each with inputs drawn from their uncertainties: ` +
+        `η within a factor of ${a.eta_scatter}, velocity ±${a.velocity_sigma / 1000} km/s, ` +
+        `angle ±${a.impact_angle_sigma}°, impactor density ${a.impactor_density_range.join('–')} kg/m³, ` +
+        `regolith density ${a.target_density_range.join('–')} kg/m³. Log scale: the two models differ ~4×.`;
+
+    const traces = Object.entries(analysis.models).map(([material, m]) => ({
+        type: 'histogram',
+        x: m.samples.map(Math.log10),
+        name: `${MODEL_LABELS[material]} (90%: ${formatNumber(m.percentiles.p5, 1)}–${formatNumber(m.percentiles.p95, 1)} m)`,
+        marker: { color: MODEL_COLORS[material] },
+        opacity: 0.65,
+        nbinsx: 60,
+        hovertemplate: '%{y} runs<extra></extra>',
+    }));
+
+    const tickVals = [2, 5, 10, 20, 50, 100];
+    Plotly.newPlot('chart-mc', traces, {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        barmode: 'overlay',
+        xaxis: {
+            ...PLOTLY_LAYOUT_DEFAULTS.xaxis,
+            title: 'Predicted crater diameter (m)',
+            tickvals: tickVals.map(Math.log10),
+            ticktext: tickVals.map(String),
+        },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Runs' },
+        shapes: [{
+            type: 'line', xref: 'x', yref: 'paper',
+            x0: Math.log10(observed), x1: Math.log10(observed), y0: 0, y1: 1,
+            line: { color: OBSERVED_COLOR, width: 2, dash: 'dash' },
+        }],
+        annotations: [{
+            x: Math.log10(observed), y: 1, xref: 'x', yref: 'paper', yanchor: 'bottom',
+            text: `LRO: ${observed} m`, showarrow: false, font: { color: OBSERVED_COLOR },
+        }],
+        legend: { orientation: 'h', y: -0.25 },
+    }, PLOTLY_CONFIG);
+}
+
+function renderEtaSweep() {
+    const observed = analysis.event.observed_diameter;
+    const nominalEta = analysis.models.regolith.nominal.luminous_efficiency;
+    const traces = Object.entries(analysis.models).map(([material, m]) => ({
+        x: m.eta_sweep.eta,
+        y: m.eta_sweep.crater_diameter,
+        mode: 'lines',
+        name: MODEL_LABELS[material],
+        line: { color: MODEL_COLORS[material], width: 2.5 },
+        hovertemplate: 'η = %{x:.2e}<br>crater %{y:.1f} m<extra></extra>',
+    }));
+    traces.push({
+        x: Object.values(analysis.models).map(m => m.implied_eta),
+        y: Object.values(analysis.models).map(() => observed),
+        mode: 'markers',
+        name: 'η that fits LRO',
+        marker: { color: OBSERVED_COLOR, size: 11, symbol: 'circle-open', line: { width: 2.5 } },
+        hovertemplate: 'η = %{x:.2e}<extra></extra>',
+    });
+
+    Plotly.newPlot('chart-eta', traces, {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Luminous efficiency η', type: 'log', exponentformat: 'power' },
+        yaxis: {
+            ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Predicted crater diameter (m)', type: 'log',
+            tickvals: [2, 5, 10, 20, 50, 100, 200], ticktext: ['2', '5', '10', '20', '50', '100', '200'],
+        },
+        shapes: [
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: observed, y1: observed,
+              line: { color: OBSERVED_COLOR, width: 1.5, dash: 'dash' } },
+            { type: 'line', yref: 'paper', y0: 0, y1: 1, x0: nominalEta, x1: nominalEta,
+              line: { color: '#a0aaba', width: 1.5, dash: 'dot' } },
+        ],
+        annotations: [
+            { x: Math.log10(nominalEta), y: 1, yref: 'paper', yanchor: 'bottom', showarrow: false,
+              text: 'Published η', font: { color: '#a0aaba' } },
+        ],
+        legend: { orientation: 'h', y: -0.25 },
+    }, PLOTLY_CONFIG);
+}
+
+function describeRatio(ratio) {
+    return ratio >= 1 ? `${formatNumber(ratio, 1)}× higher` : `${formatNumber(1 / ratio, 1)}× lower`;
+}
+
+function renderFindings() {
+    const { regolith, rock } = analysis.models;
+    const observed = analysis.event.observed_diameter;
+    const g = analysis.geometry;
+    // Where LRO's crater falls among the predictions
+    const rank = p => p < 0.01 ? 'below the 1st percentile'
+                    : p > 0.99 ? 'above the 99th percentile'
+                    : `at the ${Math.round(p * 100)}th percentile`;
+
+    document.getElementById('findings').innerHTML = `
+        <p><strong>1. The ephemeris is consistent with the observation.</strong>
+           The site was ${g.site_in_darkness ? 'dark' : 'lit'} and Earth was
+           ${g.earth_above_horizon ? 'above' : 'below'} its horizon, as a ground-based detection requires.</p>
+        <p class="mt-md"><strong>2. The measured crater falls between the two scaling laws.</strong>
+           Porous-regolith scaling predicts ${formatNumber(regolith.percentiles.p50, 1)} m
+           (LRO's ${observed} m sits ${rank(regolith.observed_percentile)});
+           rock scaling predicts ${formatNumber(rock.percentiles.p50, 1)} m
+           (LRO's crater sits ${rank(rock.observed_percentile)}).
+           ${regolith.observed_within_90 || rock.observed_within_90
+               ? 'The observation lies inside at least one model\'s 90% interval.'
+               : 'Neither model\'s 90% interval contains it, even with η uncertain by a factor of ' + analysis.assumptions.eta_scatter + '.'}</p>
+        <p class="mt-md"><strong>3. Inverting the model constrains η.</strong>
+           To reproduce ${observed} m, regolith scaling needs η ≈ ${formatScientific(regolith.implied_eta)}
+           (${describeRatio(regolith.implied_eta_ratio)} than published, i.e. a heavier impactor);
+           rock scaling needs η ≈ ${formatScientific(rock.implied_eta)}
+           (${describeRatio(rock.implied_eta_ratio)}).
+           Either the luminous efficiency of this impact was lower than assumed,
+           or the regolith at the site behaved stiffer than the porous-regolith parameters —
+           one crater cannot tell the two apart. More events would.</p>`;
+
+    document.getElementById('refs').innerHTML =
+        analysis.event.references.map(r => `<li>${escapeHtml(r)}</li>`).join('');
+    const a = analysis.assumptions;
+    document.getElementById('assumptions').textContent =
+        `Uncertainty ranges not taken from these papers are LunaLab assumptions: velocity σ, angle σ, ` +
+        `regolith density range and the η scatter factor. Monte Carlo: ${a.samples} samples, seed ${a.seed}.`;
+}
+</script>
+</body>
+</html>

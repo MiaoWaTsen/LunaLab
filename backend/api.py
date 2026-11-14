@@ -15,6 +15,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 from contextlib import asynccontextmanager
+from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Response, Header, Depends
 from fastapi.staticfiles import StaticFiles
@@ -52,6 +53,7 @@ from simulation.challenges import (
     award_challenge_xp,
 )
 from simulation.lunar_ephemeris import moon_illumination
+from simulation.case_studies import CASE_STUDIES, get_case_study, analyze
 from terrain.lunar_surface import get_surface_provider
 from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
@@ -488,6 +490,32 @@ def get_moon_illumination(at: Optional[datetime] = None):
     }
 
 
+# ---------------------------------------------------------------------------
+# Case studies — the model against observed impacts (public, read-only)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/case-studies")
+def list_case_studies():
+    return [
+        {"id": e.id, "title": e.title, "time": e.time.isoformat(),
+         "latitude": e.latitude, "longitude": e.longitude}
+        for e in CASE_STUDIES.values()
+    ]
+
+
+# The analysis is deterministic (fixed seed), so it is computed once per event
+@lru_cache(maxsize=None)
+def _case_study_analysis(event_id: str) -> dict:
+    return analyze(CASE_STUDIES[event_id])
+
+
+@app.get("/api/case-studies/{event_id}")
+def get_case_study_analysis(event_id: str):
+    if get_case_study(event_id) is None:
+        raise HTTPException(status_code=404, detail="Case study not found.")
+    return _case_study_analysis(event_id)
+
+
 @app.get("/api/moon/terrain-texture")
 def get_moon_terrain_texture():
     """Return an 8-bit raw displacement map for 3D sphere visualization."""
@@ -540,6 +568,11 @@ def serve_moon():
 @app.get("/challenge")
 def serve_challenge():
     return FileResponse(os.path.join(_FRONTEND_DIR, "challenge.html"))
+
+
+@app.get("/case-study")
+def serve_case_study():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "case-study.html"))
 
 
 @app.get("/login")

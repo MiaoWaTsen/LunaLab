@@ -15,6 +15,7 @@ LunaLab is a modular, web-based platform for simulating lunar impact craters usi
 3. **Save Experiments** — Every simulation is persisted to a SQLite database
 4. **Browse History** — View, inspect, and manage past experiments
 5. **Compare Experiments** — Select multiple experiments for side-by-side visual comparison
+6. **Case Study** — Test the model against the 17 March 2013 impact, where both the flash and the LRO crater were measured: observing geometry from the ephemeris, Monte Carlo uncertainty propagation, and inversion for the luminous efficiency η
 
 ---
 
@@ -47,7 +48,8 @@ LunaLab/
 │
 ├── simulation/              # Simulation engine (independent)
 │   ├── __init__.py
-│   └── crater_model.py      # Crater scaling (Collins/Pike)
+│   ├── crater_model.py      # Crater scaling (Collins/Pike)
+│   └── case_studies.py      # Model vs. the observed 2013-03-17 impact
 │
 ├── database/                # Data persistence layer
 │   ├── __init__.py
