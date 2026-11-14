@@ -370,3 +370,53 @@ class TestInputLimits:
 
     def test_latitude_without_longitude_rejected(self, client):
         assert client.post("/api/simulations", json={**SIM, "latitude": 10}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Inference
+# ---------------------------------------------------------------------------
+
+class TestInference:
+    def test_presets_listed(self, client):
+        res = client.get("/api/inference/presets")
+        assert res.status_code == 200
+        assert {p["id"] for p in res.json()} >= {"2013-flash", "linne", "copernicus"}
+
+    def test_every_preset_runs(self, client):
+        for preset in client.get("/api/inference/presets").json():
+            body = {k: preset[k] for k in ("crater_diameter", "diameter_error", "luminous_energy", "velocity") if k in preset}
+            res = client.post("/api/inference", json=body)
+            assert res.status_code == 200, preset["id"]
+
+    def test_inference_returns_posterior(self, client):
+        res = client.post("/api/inference", json={"crater_diameter": 2200})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["observation"]["material"] == "rock"
+        assert len(body["posterior_samples"]["velocity"]) == 1000
+        p = body["parameters"]["impactor_diameter"]["posterior"]
+        assert p["p5"] < p["p50"] < p["p95"]
+
+    def test_flash_adds_luminous_efficiency(self, client):
+        res = client.post("/api/inference", json={
+            "crater_diameter": 18.8, "luminous_energy": 7.1e6, "velocity": 25600,
+        })
+        assert "luminous_efficiency" in res.json()["parameters"]
+
+    def test_material_override(self, client):
+        res = client.post("/api/inference", json={"crater_diameter": 18.8, "material": "rock"})
+        assert res.json()["observation"]["material"] == "rock"
+
+    @pytest.mark.parametrize("body", [
+        {"crater_diameter": 0},
+        {"crater_diameter": 10, "diameter_error": 0},
+        {"crater_diameter": 10, "material": "cheese"},
+        {"crater_diameter": 10, "velocity": 100},
+        {"crater_diameter": 1e9},
+    ])
+    def test_invalid_requests_rejected(self, client, body):
+        assert client.post("/api/inference", json=body).status_code == 422
+
+    def test_requires_login(self):
+        with TestClient(app) as anonymous:
+            assert anonymous.post("/api/inference", json={"crater_diameter": 10}).status_code == 401

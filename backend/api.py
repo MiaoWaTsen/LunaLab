@@ -35,6 +35,7 @@ from backend.schemas import (
     AuthResponse,
     ChallengeSubmitRequest,
     ChallengeRecordItem,
+    InferenceRequest,
 )
 from simulation.crater_model import (
     ImpactParameters,
@@ -54,6 +55,7 @@ from simulation.challenges import (
 )
 from simulation.lunar_ephemeris import moon_illumination
 from simulation.case_studies import CASE_STUDIES, get_case_study, analyze
+from simulation.inference import Observation, PRESETS as INFERENCE_PRESETS, infer
 from terrain.lunar_surface import get_surface_provider
 from terrain.asymmetric_crater import generate_asymmetric_elevation_field
 from database.models import (
@@ -516,6 +518,28 @@ def get_case_study_analysis(event_id: str):
     return _case_study_analysis(event_id)
 
 
+# ---------------------------------------------------------------------------
+# Inference — from an observed crater back to the impactor
+# ---------------------------------------------------------------------------
+
+@app.get("/api/inference/presets")
+def list_inference_presets():
+    return INFERENCE_PRESETS
+
+
+# Signed-in only: each call runs up to a million forward models
+@app.post("/api/inference")
+def run_inference(req: InferenceRequest, user: dict = Depends(require_user)):
+    obs = Observation(
+        crater_diameter=req.crater_diameter,
+        diameter_error=req.diameter_error,
+        material=req.material,
+        luminous_energy=req.luminous_energy,
+        velocity=req.velocity,
+    )
+    return infer(obs, posterior_samples=1000)
+
+
 @app.get("/api/moon/terrain-texture")
 def get_moon_terrain_texture():
     """Return an 8-bit raw displacement map for 3D sphere visualization."""
@@ -573,6 +597,11 @@ def serve_challenge():
 @app.get("/case-study")
 def serve_case_study():
     return FileResponse(os.path.join(_FRONTEND_DIR, "case-study.html"))
+
+
+@app.get("/inference")
+def serve_inference():
+    return FileResponse(os.path.join(_FRONTEND_DIR, "inference.html"))
 
 
 @app.get("/login")

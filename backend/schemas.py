@@ -6,7 +6,7 @@ for automatic request validation and OpenAPI documentation.
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional
+from typing import Literal, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +94,25 @@ class AuthResponse(BaseModel):
 class ChallengeSubmitRequest(BaseModel):
     """Request body for POST /api/challenges/{challenge_id}/run."""
     simulation: SimulationRequest
+
+
+class InferenceRequest(BaseModel):
+    """Request body for POST /api/inference: an observed crater to invert."""
+    crater_diameter: float = Field(
+        ..., gt=0, le=3_000_000, description="Observed rim-to-rim diameter in metres"
+    )
+    diameter_error: float = Field(
+        0.05, ge=0.01, le=1.0, description="Relative 1σ measurement error (0.05 = 5%)"
+    )
+    material: Optional[Literal["regolith", "rock"]] = Field(
+        None, description="Target scaling; default: regolith for craters up to 125 m, rock above"
+    )
+    luminous_energy: Optional[float] = Field(
+        None, gt=0, le=1e20, description="Light from an observed impact flash, in joules"
+    )
+    velocity: Optional[float] = Field(
+        None, ge=2_380, le=72_000, description="Known impact velocity in m/s (e.g. a meteor shower)"
+    )
 
 
 class ChallengeRecordItem(BaseModel):

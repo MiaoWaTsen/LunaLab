@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Infer the impactor that made an observed lunar crater.">
+    <title>LunaLab — Impactor Inference</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <style>
+        .presets {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: var(--space-sm);
+        }
+        .preset {
+            text-align: left;
+            padding: var(--space-md);
+            background: var(--bg-input);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            cursor: pointer;
+            font: inherit;
+        }
+        .preset:hover { border-color: var(--border-hover); }
+        .preset--active { border-color: var(--border-accent); }
+        .preset__name { font-weight: 600; color: var(--text-heading); }
+        .preset__desc { font-size: 0.8rem; color: var(--text-muted); margin-top: var(--space-xs); }
+        .obs-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: var(--space-md);
+            align-items: end;
+        }
+        .obs-form label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: var(--space-xs);
+        }
+        /* Labels are uppercased; keep the Greek η from becoming H */
+        .greek { text-transform: none; }
+        .result-metric__range {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: var(--space-xs);
+        }
+        .marginals {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: var(--space-md);
+        }
+        .marginal { height: 220px; }
+        .explain {
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        .explain strong { color: var(--text-heading); }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
+                <li><a href="/case-study" class="navbar__link">Case Study</a></li>
+                <li><a href="/inference" class="navbar__link navbar__link--active">Inference</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Impactor Inference</h1>
+            <p class="page-header__subtitle">
+                The simulator turns an impactor into a crater. This page runs it backwards:
+                given a crater on the Moon, which impactors could have made it, and how likely is each?
+            </p>
+        </div>
+
+        <!-- Observation -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">🔭</span> Observed crater</h2>
+                <div class="presets" id="presets"></div>
+
+                <form class="obs-form mt-lg" id="obs-form">
+                    <div>
+                        <label for="in-diameter">Crater diameter (m)</label>
+                        <input class="form-input" id="in-diameter" type="number" min="0.01" step="any" required>
+                    </div>
+                    <div>
+                        <label for="in-error">Measurement error (%)</label>
+                        <input class="form-input" id="in-error" type="number" min="1" max="100" step="any" value="5" required>
+                    </div>
+                    <div>
+                        <label for="in-material">Target scaling</label>
+                        <select class="form-input" id="in-material">
+                            <option value="">Automatic</option>
+                            <option value="regolith">Porous regolith</option>
+                            <option value="rock">Competent rock</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="in-light">Flash luminous energy (J, optional)</label>
+                        <input class="form-input" id="in-light" type="number" min="0" step="any" placeholder="none">
+                    </div>
+                    <div>
+                        <label for="in-velocity">Known velocity (km/s, optional)</label>
+                        <input class="form-input" id="in-velocity" type="number" min="2.38" max="72" step="any" placeholder="prior">
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn--primary" id="btn-infer" style="width:100%;">Infer impactor</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <div id="inf-loading" class="hidden text-center mt-lg" style="color:var(--text-muted);">
+            Weighing up to a million candidate impactors…
+        </div>
+        <div id="inf-error" class="hidden text-center mt-lg" style="color:var(--accent-rose);"></div>
+
+        <div id="inf-content" class="hidden">
+
+            <!-- Headline numbers -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">☄️</span> The impactor (median and 90% credible interval)</h2>
+                    <div class="results-grid mt-lg" id="headline"></div>
+                    <p class="explain mt-md" id="headline-note" style="font-size:0.85rem;"></p>
+                </div>
+            </section>
+
+            <!-- What the crater constrains -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🎯</span> What the crater tells us</h2>
+                    <p class="explain">
+                        How much the observation narrowed each quantity, compared with what we assumed before
+                        seeing it (the prior). 100% means pinned down; 0% means the crater says nothing about it.
+                    </p>
+                    <div class="chart-container" id="chart-narrowing"></div>
+                </div>
+            </section>
+
+            <!-- Degeneracy -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">〰️</span> The size–speed degeneracy</h2>
+                    <p class="explain">
+                        Each dot is an impactor consistent with the crater. A small fast one and a large slow one
+                        dig the same hole, so the answer is a curve, not a point: the crater fixes roughly the
+                        <strong>energy</strong>, not the size or speed separately.
+                    </p>
+                    <div class="chart-container" id="chart-degeneracy"></div>
+                </div>
+            </section>
+
+            <!-- Marginals -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">📊</span> Before and after the observation</h2>
+                    <p class="explain">Grey: the prior. Colour: the posterior, after weighing by the crater.</p>
+                    <div class="marginals mt-md" id="marginals"></div>
+                </div>
+            </section>
+
+            <!-- Method -->
+            <section class="section">
+                <div class="card">
+                    <h2 class="card__title"><span class="card__title-icon">🧮</span> Method</h2>
+                    <div class="explain" id="method"></div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js?v=5"></script>
+<script>
+// How each parameter is labelled, scaled for display, and plotted
+const PARAMS = {
+    impactor_diameter:   { label: 'Impactor diameter', unit: 'm',     scale: 1,    log: true,  fmt: formatLength },
+    velocity:            { label: 'Velocity',          unit: 'km/s',  scale: 1e-3, log: false },
+    angle:               { label: 'Impact angle',      unit: '°',     scale: 1,    log: false },
+    impactor_density:    { label: 'Impactor density',  unit: 'kg/m³', scale: 1,    log: false },
+    target_density:      { label: 'Target density',    unit: 'kg/m³', scale: 1,    log: false },
+    mass:                { label: 'Mass',              unit: 'kg',    scale: 1,    log: true },
+    kinetic_energy:      { label: 'Kinetic energy',    unit: 'J',     scale: 1,    log: true,  fmt: formatEnergy },
+    luminous_efficiency: { label: 'Luminous efficiency <span class="greek">η</span>', unit: '', scale: 1, log: true, axis: 'log₁₀ η' },
+};
+const plainLabel = name => PARAMS[name].label.replace(/<[^>]+>/g, '');
+const HEADLINE = ['impactor_diameter', 'velocity', 'mass', 'kinetic_energy', 'luminous_efficiency'];
+const POSTERIOR_COLOR = '#67d4e8';
+const PRIOR_COLOR = 'rgba(160, 170, 186, 0.35)';
+
+let presets = [];
+
+init();
+
+async function init() {
+    document.getElementById('obs-form').addEventListener('submit', e => {
+        e.preventDefault();
+        setActivePreset(null);
+        runInference(readForm());
+    });
+    try {
+        presets = await apiGet('/api/inference/presets');
+    } catch (e) {
+        showToast(`Could not load presets: ${e.message}`, 'error');
+        return;
+    }
+    document.getElementById('presets').innerHTML = presets.map(p => `
+        <button type="button" class="preset" data-id="${escapeHtml(p.id)}">
+            <div class="preset__name">${escapeHtml(p.name)}</div>
+            <div class="preset__desc">${escapeHtml(p.description)}</div>
+        </button>`).join('');
+    document.querySelectorAll('.preset').forEach(btn =>
+        btn.addEventListener('click', () => choosePreset(btn.dataset.id)));
+    choosePreset(presets[0].id);
+}
+
+function setActivePreset(id) {
+    document.querySelectorAll('.preset').forEach(btn =>
+        btn.classList.toggle('preset--active', btn.dataset.id === id));
+}
+
+function choosePreset(id) {
+    const p = presets.find(x => x.id === id);
+    setActivePreset(id);
+    document.getElementById('in-diameter').value = p.crater_diameter;
+    document.getElementById('in-error').value = p.diameter_error * 100;
+    document.getElementById('in-material').value = '';
+    document.getElementById('in-light').value = p.luminous_energy ?? '';
+    document.getElementById('in-velocity').value = p.velocity ? p.velocity / 1000 : '';
+    runInference(readForm());
+}
+
+function readForm() {
+    const optional = id => {
+        const v = document.getElementById(id).value;
+        return v === '' ? null : Number(v);
+    };
+    const velocity = optional('in-velocity');
+    return {
+        crater_diameter: Number(document.getElementById('in-diameter').value),
+        diameter_error: Number(document.getElementById('in-error').value) / 100,
+        material: document.getElementById('in-material').value || null,
+        luminous_energy: optional('in-light'),
+        velocity: velocity === null ? null : velocity * 1000,
+    };
+}
+
+async function runInference(request) {
+    const loading = document.getElementById('inf-loading');
+    const error = document.getElementById('inf-error');
+    const button = document.getElementById('btn-infer');
+    loading.classList.remove('hidden');
+    error.classList.add('hidden');
+    button.disabled = true;
+    try {
+        const result = await apiPost('/api/inference', request);
+        document.getElementById('inf-content').classList.remove('hidden');
+        render(result);
+    } catch (e) {
+        error.textContent = `Inference failed: ${e.message}`;
+        error.classList.remove('hidden');
+    } finally {
+        loading.classList.add('hidden');
+        button.disabled = false;
+    }
+}
+
+function display(name, value) {
+    const p = PARAMS[name];
+    if (p.fmt) return p.fmt(value);
+    const v = value * p.scale;
+    // One decimal for small values and for scientific notation (≥ 10⁶)
+    const decimals = Math.abs(v) < 100 || Math.abs(v) >= 1e6 ? 1 : 0;
+    return `${formatNumber(v, decimals)}${p.unit ? ' ' + p.unit : ''}`;
+}
+
+function render(result) {
+    const names = Object.keys(result.parameters);
+    renderHeadline(result, names);
+    renderNarrowing(result, names);
+    renderDegeneracy(result);
+    renderMarginals(result, names);
+    renderMethod(result);
+}
+
+function renderHeadline(result, names) {
+    document.getElementById('headline').innerHTML = HEADLINE.filter(n => names.includes(n)).map(name => {
+        const post = result.parameters[name].posterior;
+        return `
+            <div class="result-metric">
+                <div class="result-metric__range">90%: ${display(name, post.p5)} – ${display(name, post.p95)}</div>
+                <div class="result-metric__value">${display(name, post.p50)}</div>
+                <div class="result-metric__label">${PARAMS[name].label}</div>
+            </div>`;
+    }).join('');
+    const obs = result.observation;
+    document.getElementById('headline-note').textContent =
+        `${formatLength(obs.crater_diameter)} ± ${Math.round(obs.diameter_error * 100)}% crater, ` +
+        `${obs.material === 'regolith' ? 'porous-regolith' : 'competent-rock'} scaling` +
+        (obs.luminous_energy ? `, flash of ${formatEnergy(obs.luminous_energy)}` : '') +
+        (obs.velocity ? `, velocity fixed near ${formatNumber(obs.velocity / 1000, 1)} km/s` : '') + '.';
+}
+
+function renderNarrowing(result, names) {
+    const rows = names.map(n => ({ name: plainLabel(n), info: Math.max(0, 1 - result.parameters[n].narrowing) }))
+        .sort((a, b) => a.info - b.info);
+    Plotly.newPlot('chart-narrowing', [{
+        type: 'bar',
+        orientation: 'h',
+        y: rows.map(r => r.name),
+        x: rows.map(r => r.info * 100),
+        marker: { color: rows.map(r => r.info > 0.5 ? '#4fd1a5' : r.info > 0.15 ? '#f2c66d' : '#6b7486') },
+        hovertemplate: '%{y}: %{x:.0f}% narrower<extra></extra>',
+    }], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        margin: { ...PLOTLY_LAYOUT_DEFAULTS.margin, l: 150 },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: '90% interval narrower than the prior (%)', range: [0, 100] },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, automargin: true },
+    }, PLOTLY_CONFIG);
+}
+
+function renderDegeneracy(result) {
+    const post = result.posterior_samples, prior = result.prior_draws;
+    Plotly.newPlot('chart-degeneracy', [
+        {
+            x: prior.impactor_diameter, y: prior.velocity.map(v => v / 1000),
+            mode: 'markers', type: 'scattergl', name: 'Prior (before the crater)',
+            marker: { color: PRIOR_COLOR, size: 4 },
+            hoverinfo: 'skip',
+        },
+        {
+            x: post.impactor_diameter, y: post.velocity.map(v => v / 1000),
+            mode: 'markers', type: 'scattergl', name: 'Consistent with the crater',
+            marker: {
+                color: post.angle, colorscale: 'Viridis', size: 5, opacity: 0.8,
+                colorbar: { title: { text: 'Angle (°)', side: 'right' }, thickness: 12 },
+            },
+            hovertemplate: '⌀ %{x:.3g} m<br>%{y:.1f} km/s<br>%{marker.color:.0f}°<extra></extra>',
+        },
+    ], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        // Zoomed to the posterior, ×3 either side; the prior fills the background
+        xaxis: {
+            ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Impactor diameter (m)', type: 'log',
+            range: [Math.log10(Math.min(...post.impactor_diameter) / 3), Math.log10(Math.max(...post.impactor_diameter) * 3)],
+        },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Velocity (km/s)' },
+        legend: { orientation: 'h', y: -0.25 },
+    }, PLOTLY_CONFIG);
+}
+
+function renderMarginals(result, names) {
+    const container = document.getElementById('marginals');
+    container.innerHTML = names.map(n => `<div class="marginal" id="marginal-${n}"></div>`).join('');
+    for (const name of names) {
+        const p = PARAMS[name];
+        const transform = v => p.log ? Math.log10(v * p.scale) : v * p.scale;
+        const trace = (values, color, label) => ({
+            type: 'histogram', x: values.map(transform), name: label,
+            histnorm: 'probability density', nbinsx: 40, marker: { color }, opacity: 0.8,
+            hoverinfo: 'skip',
+        });
+        Plotly.newPlot(`marginal-${name}`, [
+            trace(result.prior_draws[name], PRIOR_COLOR, 'Prior'),
+            trace(result.posterior_samples[name], POSTERIOR_COLOR, 'Posterior'),
+        ], {
+            ...PLOTLY_LAYOUT_DEFAULTS,
+            barmode: 'overlay',
+            showlegend: false,
+            margin: { t: 30, r: 10, b: 40, l: 10 },
+            title: { text: plainLabel(name), font: { size: 13, color: '#dfe4ec' } },
+            xaxis: {
+                ...PLOTLY_LAYOUT_DEFAULTS.xaxis,
+                title: { text: p.axis || (p.log ? `log₁₀ ${p.unit}` : p.unit), font: { size: 11 } },
+            },
+            yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, showticklabels: false },
+        }, { ...PLOTLY_CONFIG, displayModeBar: false });
+    }
+}
+
+function renderMethod(result) {
+    const ess = Math.round(result.effective_sample_size);
+    document.getElementById('method').innerHTML = `
+        <p><strong>Bayes' theorem:</strong> posterior(impactor | crater) ∝ likelihood(crater | impactor) × prior(impactor).</p>
+        <p class="mt-md"><strong>Importance sampling:</strong> ${result.prior_samples.toLocaleString()} candidate impactors
+           were drawn from the prior and each run through the crater model; each is weighted by how well its crater
+           matches the observation (log-normal likelihood). ${ess.toLocaleString()} effective samples carried the answer.</p>
+        <p class="mt-md"><strong>Priors:</strong> impactor diameter log-uniform (scale-free); velocity around 20 km/s, the
+           mean lunar impact speed (Le Feuvre &amp; Wieczorek 2011); angle p(θ) ∝ sin 2θ, the distribution for
+           isotropic impactors (Shoemaker 1962), most likely 45°; densities uniform over plausible ranges.</p>
+        <p class="mt-md"><strong>Validated by simulation-based calibration</strong> (Talts et al. 2018): for synthetic craters
+           made by known impactors, the 90% credible interval contains the true impactor about 90% of the time
+           (tests/test_inference.py).</p>`;
+}
+</script>
+</body>
+</html>
