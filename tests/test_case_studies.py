@@ -11,6 +11,7 @@ change that moves them shows up here and the case-study page gets reviewed.
 import math
 from dataclasses import replace
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -159,7 +160,10 @@ def test_implied_eta_rejects_an_unreachable_crater():
 # The findings the case-study page reports (pinned to bands)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+# Function-scoped on purpose: mutmut 3 runs, for each mutant, only the tests
+# that called the mutated function.  A module-scoped fixture is computed during
+# the first test alone, so the others would never see the mutant.
+@pytest.fixture
 def result():
     return analyze(FLASH_2013)
 
@@ -232,3 +236,74 @@ def test_case_study_page_is_served():
     res = client.get("/case-study")
     assert res.status_code == 200
     assert "17 March 2013" in res.text
+
+
+# ---------------------------------------------------------------------------
+# Precise checks (gaps found by mutation testing)
+# ---------------------------------------------------------------------------
+
+from simulation.case_studies import _elevation_above_horizon  # noqa: E402
+
+
+@pytest.mark.parametrize("site,sub_point,expected", [
+    ((10.0, 20.0), (10.0, 20.0), 90.0),      # at the sub-point: overhead
+    ((-10.0, -160.0), (10.0, 20.0), -90.0),  # the antipode: straight down
+    ((0.0, 110.0), (0.0, 20.0), 0.0),        # 90° away: on the horizon
+    ((40.0, 20.0), (10.0, 20.0), 60.0),      # 30° away: 60° up
+])
+def test_elevation_above_horizon_exact(site, sub_point, expected):
+    # asin near ±1 loses ~1e-6° to rounding
+    assert _elevation_above_horizon(*site, *sub_point) == pytest.approx(expected, abs=1e-5)
+
+
+def test_darkness_flips_at_the_terminator():
+    from simulation.lunar_ephemeris import moon_illumination
+    m = moon_illumination(FLASH_2013.time)
+    # 89.5° and 90.5° of longitude from the sub-solar point, at its latitude
+    # (~1° off the equator, so the elevation is ~0.5°, not exactly)
+    lit = replace(FLASH_2013, latitude=m.sub_solar_lat, longitude=m.sub_solar_lon + 89.5)
+    dark = replace(FLASH_2013, latitude=m.sub_solar_lat, longitude=m.sub_solar_lon + 90.5)
+    assert observing_geometry(lit)["sun_elevation"] == pytest.approx(0.5, abs=0.05)
+    assert not observing_geometry(lit)["site_in_darkness"]
+    assert observing_geometry(dark)["site_in_darkness"]
+
+
+def test_earth_horizon_flips_at_90_degrees():
+    from simulation.lunar_ephemeris import moon_illumination
+    m = moon_illumination(FLASH_2013.time)
+    near = replace(FLASH_2013, latitude=m.sub_earth_lat, longitude=m.sub_earth_lon + 89.5)
+    far = replace(FLASH_2013, latitude=m.sub_earth_lat, longitude=m.sub_earth_lon + 90.5)
+    assert observing_geometry(near)["earth_above_horizon"]
+    assert not observing_geometry(far)["earth_above_horizon"]
+
+
+def test_implied_eta_ratio_is_relative_to_the_published_value(result):
+    for m in result["models"].values():
+        assert m["implied_eta_ratio"] == pytest.approx(m["implied_eta"] / FLASH_2013.nominal_eta)
+
+
+def test_observed_within_90_is_true_for_a_typical_crater():
+    # Move the "observed" crater to the regolith model's median prediction
+    median = analyze(FLASH_2013, samples=400)["models"]["regolith"]["percentiles"]["p50"]
+    typical = analyze(replace(FLASH_2013, observed_diameter=median), samples=400)["models"]["regolith"]
+    assert typical["observed_within_90"]
+    assert 0.4 < typical["observed_percentile"] < 0.6
+
+
+def test_analyze_is_seeded():
+    a = analyze(FLASH_2013, samples=100, seed=1)["models"]["rock"]["samples"]
+    b = analyze(FLASH_2013, samples=100, seed=1)["models"]["rock"]["samples"]
+    c = analyze(FLASH_2013, samples=100, seed=2)["models"]["rock"]["samples"]
+    assert a == b != c
+
+
+def test_reported_percentiles_match_the_samples(result):
+    for m in result["models"].values():
+        p5, p50, p95 = np.percentile(m["samples"], [5, 50, 95])
+        assert (m["percentiles"]["p5"], m["percentiles"]["p50"], m["percentiles"]["p95"]) == pytest.approx((p5, p50, p95), rel=1e-3)
+
+
+def test_eta_sweep_spans_1e_5_to_1e_1(result):
+    eta = result["models"]["regolith"]["eta_sweep"]["eta"]
+    assert eta[0] == pytest.approx(1e-5) and eta[-1] == pytest.approx(1e-1)
+    assert len(eta) == 49

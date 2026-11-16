@@ -13,12 +13,17 @@ method against something whose answer is known:
    Those samples came back in 2024, so unlike the Apollo sites they played
    no part in calibrating the Neukum (2001) chronology: an independent test.
 
-3. Landing sites with the Robbins (2018) catalogue, counted in circles: a
-   deliberately naive count area, to show why crater counting needs a
-   mapped geological unit.  Circles mix in neighbouring terrain: at 100 km
-   no site comes out younger than its samples, and the young basalts
-   (Chang'e-5, Chang'e-6) come out over a billion years too old.  Smaller
-   circles let in less foreign terrain but leave fewer craters to count.
+3. Landing sites with the Robbins (2018) catalogue, counted two ways:
+   - in circles, a deliberately naive count area: they mix in neighbouring
+     terrain, and the young basalts (Chang'e-5, Chang'e-6) come out over a
+     billion years too old;
+   - on the mapped geological unit each site sits on (Unified Geologic Map
+     of the Moon, 1:5M), clipped to the circle.  Better, but the young
+     basalts still read far too old, and their age climbs with the smallest
+     crater counted: the signature of resurfacing.  Kilometre craters on a
+     thin young flow include "ghost" craters of the older floor beneath it,
+     so a catalogue complete only to 1 km cannot date young lavas; that
+     takes counts of sub-kilometre craters, as for Chang'e-6 above.
 
 Data files are built by scripts/build_crater_data.py.
 """
@@ -114,9 +119,13 @@ def _weighted_cumulative(diameters, weights, area_km2: float) -> dict:
 # 1. Synthetic bombardment
 # ---------------------------------------------------------------------------
 
+# Every crater goes to the browser, which redraws them all each animation frame
+MAX_BROWSER_CRATERS = 50_000
+
+
 def synthetic_history(age: float, size_km: float, d_min: float, seed: int = 0) -> dict:
     """A bombarded surface, its crater history, and the ages recovered from it."""
-    surface = bombard(age, size_km, d_min, seed=seed)
+    surface = bombard(age, size_km, d_min, seed=seed, max_craters=MAX_BROWSER_CRATERS)
     area = size_km ** 2
     today = visible_at(surface, 0.0)
 
@@ -136,7 +145,9 @@ def synthetic_history(age: float, size_km: float, d_min: float, seed: int = 0) -
     }
 
     def rounded(key, digits):
-        return [None if math.isnan(v) else round(float(v), digits) for v in surface[key]]
+        values = surface[key].round(digits).tolist()
+        # NaN (never erased) is not valid JSON; v != v only for NaN
+        return [None if v != v else v for v in values] if key == "erased" else values
 
     return {
         "age": age,
@@ -146,7 +157,7 @@ def synthetic_history(age: float, size_km: float, d_min: float, seed: int = 0) -
         "seed": seed,
         "craters": {
             "x": rounded("x", 2), "y": rounded("y", 2), "diameter": rounded("diameter", 3),
-            "formed": rounded("formed", 3), "erased": rounded("erased", 3),
+            "formed": rounded("formed", 4), "erased": rounded("erased", 4),
         },
         "history": history,
         "sfd": _weighted_cumulative(surface["diameter"][today], np.ones(int(today.sum())), area),
@@ -202,18 +213,52 @@ def load_landing_site_craters() -> dict:
         return json.load(f)
 
 
-def landing_site_ages(radius_km: float = 100.0, d_min: float = 1.0, d_max: float = 20.0) -> dict:
+COUNT_AREAS = ("circle", "unit")
+UNIT_FIT_MINIMUMS = (1.0, 1.5, 2.0, 3.0)
+
+
+def _site_rows(site_id: str) -> np.ndarray:
+    """latitude, longitude, diameter_km, distance_km, on_unit."""
+    return np.array(load_landing_site_craters()["sites"][site_id], float).reshape(-1, 5)
+
+
+def _count_area(site_id: str, radius_km: float, count_area: str) -> tuple[np.ndarray, float]:
+    """The craters counted and the area (km²) for one site and count-area choice."""
     data = load_landing_site_craters()
-    if not 10.0 <= radius_km <= data["max_distance_km"]:
-        raise ValueError(f"radius must be between 10 and {data['max_distance_km']:g} km")
+    if count_area not in COUNT_AREAS:
+        raise ValueError(f"count_area must be one of {COUNT_AREAS}")
+    key = f"{radius_km:g}"
+    if key not in data["units"][site_id]["area_by_radius_km2"]:
+        radii = sorted(int(r) for r in data["units"][site_id]["area_by_radius_km2"])
+        raise ValueError(f"radius must be one of {radii[0]}, {radii[1]}, ..., {radii[-1]} km")
+    rows = _site_rows(site_id)
+    inside = rows[:, 3] <= radius_km
+    if count_area == "unit":
+        return rows[inside & (rows[:, 4] == 1)], data["units"][site_id]["area_by_radius_km2"][key]
+    return rows[inside], spherical_cap_area_km2(radius_km)
+
+
+def landing_site_ages(
+    radius_km: float = 100.0,
+    d_min: float = 1.0,
+    d_max: float = 20.0,
+    count_area: str = "circle",
+) -> dict:
+    """
+    Crater-count ages at the sampled landing sites.
+
+    count_area="circle" counts every catalogue crater within `radius_km`;
+    "unit" only those on the mapped geological unit the site sits on, over
+    that unit's area within `radius_km`.
+    """
+    data = load_landing_site_craters()
     if not 1.0 <= d_min < d_max:
         raise ValueError("need 1 km ≤ d_min < d_max (the catalogue starts at 1 km)")
-    area = spherical_cap_area_km2(radius_km)
 
     sites = []
     for site in LANDING_SITES:
-        rows = np.array(data["sites"][site.id]).reshape(-1, 4)
-        inside = rows[rows[:, 3] <= radius_km]
+        craters, area = _count_area(site.id, radius_km, count_area)
+        unit = data["units"][site.id]
         sites.append({
             "id": site.id,
             "name": site.name,
@@ -221,13 +266,19 @@ def landing_site_ages(radius_km: float = 100.0, d_min: float = 1.0, d_max: float
             "longitude": site.longitude,
             "sample_ages": list(site.sample_ages),
             "reference": site.reference,
-            "ages": {key: _age_summary(infer_age(inside[:, 2], area, d_min, d_max, chron))
+            "unit": {k: unit[k] for k in ("code", "period", "description", "unit_area_km2")},
+            "area_km2": area,
+            "ages": {key: _age_summary(infer_age(craters[:, 2], area, d_min, d_max, chron))
                      for key, chron in CHRONOLOGIES.items()},
+            # The resurfacing signature: does the age climb with the smallest crater counted?
+            "age_by_d_min": [_age_summary(infer_age(craters[:, 2], area, m, d_max))
+                             for m in UNIT_FIT_MINIMUMS if m < d_max],
         })
     return {
         "source": data["source"],
+        "unit_source": data["unit_source"],
+        "count_area": count_area,
         "radius_km": radius_km,
-        "area_km2": area,
         "d_min": d_min,
         "d_max": d_max,
         "sites": sites,
@@ -235,21 +286,20 @@ def landing_site_ages(radius_km: float = 100.0, d_min: float = 1.0, d_max: float
 
 
 def landing_site_craters(site_id: str, radius_km: float = 100.0) -> dict:
-    """The catalogue craters around one site, for its map and SFD."""
+    """The catalogue craters around one site, with its unit outline, for a map."""
     site = SITES_BY_ID[site_id]
-    rows = np.array(load_landing_site_craters()["sites"][site_id]).reshape(-1, 4)
+    data = load_landing_site_craters()
+    rows = _site_rows(site_id)
     inside = rows[rows[:, 3] <= radius_km]
-    area = spherical_cap_area_km2(radius_km)
     return {
         "id": site.id,
         "name": site.name,
         "latitude": site.latitude,
         "longitude": site.longitude,
         "radius_km": radius_km,
+        "unit": data["units"][site_id],
         "craters": {"latitude": inside[:, 0].tolist(), "longitude": inside[:, 1].tolist(),
-                    "diameter": inside[:, 2].tolist()},
-        "sfd": _weighted_cumulative(inside[:, 2], np.ones(len(inside)), area),
-        "isochrons": isochrons(1.0, 50.0),
+                    "diameter": inside[:, 2].tolist(), "on_unit": inside[:, 4].astype(int).tolist()},
     }
 
 

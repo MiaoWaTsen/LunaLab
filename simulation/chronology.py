@@ -182,17 +182,6 @@ def infer_age(
     }
 
 
-def cumulative_sfd(diameters_km, area_km2: float) -> dict:
-    """Observed cumulative size-frequency distribution, with √N Poisson error bars."""
-    d = np.sort(np.asarray(diameters_km, dtype=float))[::-1]
-    counts = np.arange(1, len(d) + 1)
-    return {
-        "diameter": d.tolist(),
-        "density": (counts / area_km2).tolist(),
-        "error": (np.sqrt(counts) / area_km2).tolist(),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Synthetic bombardment
 # ---------------------------------------------------------------------------
@@ -254,6 +243,7 @@ def bombard(
     chronology: Chronology = NEUKUM_2001,
     seed: int = 0,
     erase: bool = True,
+    max_craters: int = MAX_SYNTHETIC_CRATERS,
 ) -> dict:
     """
     A square surface `size_km` across, exposed for `age` Gyr.
@@ -273,10 +263,10 @@ def bombard(
     rng = np.random.default_rng(seed)
     area = size_km ** 2
     expected = area * chronology.n1(age) * float(production_shape(d_min) - production_shape(d_max))
-    if expected > MAX_SYNTHETIC_CRATERS:
+    if expected > max_craters:
         raise ValueError(
             f"about {expected:,.0f} craters: use a smaller area, a younger age or a larger d_min "
-            f"(limit {MAX_SYNTHETIC_CRATERS:,})")
+            f"(limit {max_craters:,})")
     n = int(rng.poisson(expected))
 
     formed = np.sort(sample_formation_ages(n, age, chronology, rng))[::-1]   # oldest first

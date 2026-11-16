@@ -199,3 +199,121 @@ def test_username_markup_is_shown_as_text(page, server):
     page.wait_for_selector(".user-badge__name")
     assert page.inner_text(".user-badge__name") == evil[:30]
     assert page.evaluate("window.pwned") is None
+
+
+# ---------------------------------------------------------------------------
+# Science pages: case study, inference, surface age
+# ---------------------------------------------------------------------------
+
+def _collect_errors(page):
+    """Uncaught exceptions and console errors, except the CDN requests the page fixture aborts."""
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.on("console", lambda m: m.type == "error" and "net::ERR_FAILED" not in m.text and errors.append(m.text))
+    return errors
+
+
+def test_case_study_shows_geometry_and_findings(page, server):
+    base = server["base"]
+    errors = _collect_errors(page)
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/case-study")
+    page.wait_for_selector("#cs-content:not(.hidden)")
+    # The ephemeris confirms the flash was visible: two passing checks
+    assert page.locator("#geometry-checks .check--pass").count() == 2
+    assert "Inverting the model" in page.inner_text("#findings")
+    page.select_option("#material-select", "rock")
+    assert "competent rock" in page.inner_text("#chain")
+    assert errors == []
+
+
+def test_inference_presets_fill_the_form_and_run(page, server):
+    base = server["base"]
+    errors = _collect_errors(page)
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/inference")
+    page.wait_for_selector("#inf-content:not(.hidden)")
+    # The default preset is the crater alone: no luminous-efficiency card
+    assert "Luminous efficiency" not in page.inner_text("#headline")
+    page.click(".preset[data-id='2013-flash']")
+    page.wait_for_function("document.querySelector('#headline').textContent.includes('Luminous efficiency')")
+    assert page.input_value("#in-light") == "7100000"
+    page.click(".preset[data-id='copernicus']")
+    page.wait_for_function("document.querySelector('#headline-note').textContent.includes('competent-rock')")
+    assert errors == []
+
+
+def test_inference_custom_crater(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/inference")
+    page.wait_for_selector("#inf-content:not(.hidden)")
+    page.fill("#in-diameter", "500")
+    page.fill("#in-light", "")
+    page.fill("#in-velocity", "")
+    page.click("#btn-infer")
+    page.wait_for_function("document.querySelector('#headline-note').textContent.startsWith('500 m')")
+    assert page.locator(".preset--active").count() == 0
+
+
+def test_surface_age_simulation_and_time_slider(page, server):
+    base = server["base"]
+    errors = _collect_errors(page)
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/surface-age")
+    page.wait_for_selector("#fit-rows tr")
+    today = page.inner_text("#clock")
+    assert today.startswith("today") and int(re.search(r"([\d,]+) craters", today).group(1).replace(",", "")) > 1000
+    # Back to the moment the surface formed: no craters yet
+    page.fill("#time-slider", "0")
+    page.dispatch_event("#time-slider", "input")
+    assert re.search(r"· 0 craters", page.inner_text("#clock"))
+    # A younger surface, re-simulated
+    page.fill("#age-slider", "2")
+    page.dispatch_event("#age-slider", "change")
+    page.wait_for_function("document.querySelector('#fit-rows').textContent.includes('True age: 2.0')")
+    assert errors == []
+
+
+def test_surface_age_count_area_toggle_and_site_map(page, server):
+    base = server["base"]
+    errors = _collect_errors(page)
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/surface-age")
+    page.wait_for_function("document.querySelector('#sites-finding').textContent.length > 0")
+    assert page.inner_text("#sites-finding").startswith("Every crater within 150 km")
+    page.click(".toggle__btn[data-area='unit']")
+    page.wait_for_function("document.querySelector('#sites-finding').textContent.startsWith('On the mapped unit')")
+    page.select_option("#site-select", "apollo17")
+    page.wait_for_timeout(500)
+    assert errors == []
+
+
+def test_every_page_links_to_the_science_pages(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    for path in ["/", "/experiment", "/challenge", "/history", "/case-study", "/inference", "/surface-age"]:
+        goto(page, f"{base}{path}")
+        links = page.eval_on_selector_all(".navbar__links a", "els => els.map(e => e.getAttribute('href'))")
+        assert {"/case-study", "/inference", "/surface-age"} <= set(links), path
+
+
+def test_inference_shows_the_last_preset_clicked(page, server):
+    """Regression: a slow earlier response (the flash preset) overwrote a later one."""
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/inference")
+    page.wait_for_selector("#inf-content:not(.hidden)")
+    page.click(".preset[data-id='2013-flash']")      # ~1M samples: the slow one
+    page.click(".preset[data-id='linne']")           # 300k samples: answers first
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(300)
+    note = page.inner_text("#headline-note")
+    assert note.startswith("2,200 m") and "flash" not in note

@@ -67,6 +67,10 @@
         .fit-table td, .fit-table th { font-family: var(--font-mono); font-size: 0.85rem; }
         .verdict-good { color: var(--accent-emerald); }
         .verdict-bad { color: var(--accent-rose); }
+        .toggle { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm);
+                  background: var(--bg-input); border: 1px solid var(--border-primary); }
+        .toggle__btn { background: transparent; color: var(--text-secondary); border: none; }
+        .toggle__btn--active { background: var(--accent-indigo-glow); color: var(--text-heading); }
         .refs { font-size: 0.85rem; color: var(--text-muted); padding-left: var(--space-lg); }
     </style>
 </head>
@@ -182,25 +186,52 @@
             </div>
         </section>
 
-        <!-- 3. Pitfall -->
+        <!-- 3. Landing sites -->
         <section class="section">
             <div class="card">
-                <h2 class="card__title"><span class="card__title-icon">⚠️</span> Pitfall: counting in the wrong place</h2>
+                <h2 class="card__title"><span class="card__title-icon">🗺️</span> Seven landing sites: where you count matters</h2>
                 <p class="explain">
-                    The same method on seven sampled landing sites, but counting every catalogued crater
-                    (Robbins 2018, ≥ 1 km) in a circle around each one, instead of on the mapped lava flow
-                    that was sampled. Where the surroundings are as old as the sampled lava, the age
-                    survives; where the sampled flow is younger than its neighbours, the circle dates the
-                    neighbours instead.
+                    The same method on every sampled mare site, with the global crater catalogue
+                    (Robbins 2018, complete to about 1 km). A crater count only dates one lava flow if it
+                    is made on that flow. Compare counting <strong>every crater in a circle</strong> with
+                    counting only on the <strong>mapped geological unit</strong> the site sits on
+                    (Unified Geologic Map of the Moon, 1:5M).
                 </p>
                 <div class="controls">
+                    <div class="toggle" role="group" aria-label="Count area">
+                        <button class="btn btn--sm toggle__btn toggle__btn--active" data-area="circle">Circle</button>
+                        <button class="btn btn--sm toggle__btn" data-area="unit">Mapped unit</button>
+                    </div>
                     <div>
-                        <label for="radius-slider">Circle radius: <span id="radius-label">100</span> km</label>
-                        <input type="range" id="radius-slider" min="25" max="150" step="5" value="100">
+                        <label for="radius-slider">Radius: <span id="radius-label">150</span> km</label>
+                        <input type="range" id="radius-slider" min="25" max="150" step="5" value="150">
                     </div>
                 </div>
                 <div class="chart-container mt-md" id="chart-sites"></div>
                 <p class="explain mt-md" id="sites-finding"></p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">👻</span> Why young lavas still read old: ghost craters</h2>
+                <p class="explain">
+                    A thin lava flow buries the craters beneath it only partly: kilometre-sized ones survive
+                    as "ghost" rings and get counted with the flow's own craters. The tell-tale sign: the
+                    age <strong>climbs</strong> as only larger craters are counted, because the larger the
+                    crater, the likelier it predates the lava. Dating young flows takes sub-kilometre
+                    craters, counted on high-resolution images — like the Chang'e-6 count above.
+                </p>
+                <div class="controls">
+                    <div>
+                        <label for="site-select">Landing site</label>
+                        <select class="form-input" id="site-select" style="width:auto;"></select>
+                    </div>
+                </div>
+                <div class="sim-layout mt-md">
+                    <div class="chart-container" id="chart-site-map"></div>
+                    <div class="chart-container" id="chart-site-dmin"></div>
+                </div>
             </div>
         </section>
 
@@ -227,6 +258,7 @@
                     <li>Zhang et al. (2025), Nature 643, 356-360 — Chang'e-6 age</li>
                     <li>Crater catalogue: Robbins (2018), via Zenodo record 21500453, CC BY 4.0</li>
                     <li>Chang'e-6 crater count: Craterstats sample data (G. Michael), BSD 3-Clause</li>
+                    <li>Geological units: Unified Geologic Map of the Moon, 1:5M (Fortezzo, Spudis &amp; Harrel 2020), USGS</li>
                 </ul>
             </div>
         </section>
@@ -248,6 +280,9 @@ const ISOCHRON_COLOR = 'rgba(160, 170, 186, 0.35)';
 const CHRON_LABELS = { neukum2001: 'Neukum (2001)', yue2022: 'Yue (2022)' };
 
 let sim = null;          // current synthetic surface
+// Each loader numbers its requests and ignores responses that a newer request
+// has superseded, so a slow early response cannot overwrite a later one
+let surfaceRequest = 0, sitesRequest = 0, siteDetailRequest = 0;
 let timeAgo = 0;         // Gyr before present shown on the canvas
 let playing = false;
 let seed = 0;
@@ -263,12 +298,17 @@ async function loadSurface() {
     const age = Number(document.getElementById('age-slider').value);
     stopPlaying();
     document.getElementById('clock').textContent = 'Bombarding…';
+    const request = ++surfaceRequest;
+    let result;
     try {
-        sim = await apiGet(`/api/surface-age/synthetic?age=${age}&seed=${seed}`);
+        result = await apiGet(`/api/surface-age/synthetic?age=${age}&seed=${seed}`);
     } catch (e) {
         showToast(`Simulation failed: ${e.message}`, 'error');
         return;
     }
+    // A later slider move has already asked for another surface
+    if (request !== surfaceRequest) return;
+    sim = result;
     setTime(0);
     renderHistory();
     renderSyntheticFits();
@@ -284,29 +324,48 @@ function sizeCanvas() {
     }
 }
 
+// One crater, drawn once: a gradient per crater per frame is far too slow
+// with thousands of craters, so each frame stamps this sprite instead
+const CRATER_SPRITE = (() => {
+    const size = 128, r = size / 2;
+    const sprite = document.createElement('canvas');
+    sprite.width = sprite.height = size;
+    const g = sprite.getContext('2d');
+    // Sun from the left: shadowed left wall, lit right wall, bright rim
+    const gradient = g.createRadialGradient(r - r * 0.35, r - r * 0.2, r * 0.1, r, r, r);
+    gradient.addColorStop(0, '#2e3238');
+    gradient.addColorStop(0.75, '#4a4e55');
+    gradient.addColorStop(1, '#8d929a');
+    g.beginPath();
+    g.arc(r, r, r, 0, Math.PI * 2);
+    g.fillStyle = gradient;
+    g.fill();
+    return sprite;
+})();
+const TINY_CRATER_COLOR = '#43474e';   // the sprite's average tone, for craters under ~2 px
+
 function drawSurface() {
     if (!sim) return;
     const w = canvas.width, scale = w / sim.size_km;
     ctx.fillStyle = '#5b5f66';
     ctx.fillRect(0, 0, w, w);
+    ctx.fillStyle = TINY_CRATER_COLOR;
 
     const c = sim.craters;
     let visible = 0;
     // Oldest first, so younger craters draw over older ones
     for (let i = 0; i < c.x.length; i++) {
-        if (c.formed[i] < timeAgo) break;                         // not formed yet (sorted oldest first)
+        // Not formed yet (sorted oldest first).  Strict: formation ages are
+        // rounded, and at the moment the surface forms none must show
+        if (c.formed[i] <= timeAgo) break;
         if (c.erased[i] !== null && c.erased[i] >= timeAgo) continue;  // already destroyed
         visible++;
         const x = c.x[i] * scale, y = c.y[i] * scale, r = Math.max(c.diameter[i] / 2 * scale, 0.6);
-        // Sun from the left: shadowed left wall, lit right wall, bright rim
-        const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.2, r * 0.1, x, y, r);
-        g.addColorStop(0, '#2e3238');
-        g.addColorStop(0.75, '#4a4e55');
-        g.addColorStop(1, '#8d929a');
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = g;
-        ctx.fill();
+        if (r < 1) {
+            ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+        } else {
+            ctx.drawImage(CRATER_SPRITE, x - r, y - r, 2 * r, 2 * r);
+        }
     }
     document.getElementById('clock').textContent =
         `${timeAgo < 0.005 ? 'today' : `${timeAgo.toFixed(2)} Gyr ago`} · ${visible.toLocaleString()} craters`;
@@ -490,26 +549,37 @@ async function loadChange6() {
 // Landing sites
 // ---------------------------------------------------------------------------
 
+let countArea = 'circle';
+let unitSites = null;   // unit-mode results, for the ghost-crater chart
+
 async function loadSites() {
     const radius = Number(document.getElementById('radius-slider').value);
     document.getElementById('radius-label').textContent = radius;
-    let data;
+    const request = ++sitesRequest;
+    let data, units;
     try {
-        data = await apiGet(`/api/surface-age/sites?radius_km=${radius}`);
+        [data, units] = await Promise.all([
+            apiGet(`/api/surface-age/sites?radius_km=${radius}&count_area=${countArea}`),
+            apiGet(`/api/surface-age/sites?radius_km=${radius}&count_area=unit`),
+        ]);
     } catch (e) {
         showToast(`Landing-site data failed: ${e.message}`, 'error');
         return;
     }
+    if (request !== sitesRequest) return;
+    unitSites = units;
     const names = data.sites.map(s => s.name);
     const ages = data.sites.map(s => s.ages.neukum2001);
+    const label = countArea === 'unit' ? `On the mapped unit, within ${radius} km` : `Every crater within ${radius} km`;
     Plotly.newPlot('chart-sites', [
         {
-            x: names, y: ages.map(a => a.median), mode: 'markers', name: `Crater count, ${radius} km circle`,
+            x: names, y: ages.map(a => a.median), mode: 'markers', name: `Crater count: ${label.toLowerCase()}`,
             error_y: { type: 'data', symmetric: false, array: ages.map(a => a.p95 - a.median),
                        arrayminus: ages.map(a => a.median - a.p5), color: COLORS.neukum2001 },
             marker: { color: COLORS.neukum2001, size: 10 },
-            customdata: ages.map(a => Math.round(a.count)),
-            hovertemplate: '%{x}: %{y:.2f} Gyr from %{customdata} craters<extra></extra>',
+            customdata: data.sites.map((s, i) => [Math.round(ages[i].count), Math.round(s.area_km2), s.unit.code]),
+            hovertemplate: '%{x}: %{y:.2f} Gyr<br>%{customdata[0]} craters on %{customdata[1]:,} km²' +
+                           (countArea === 'unit' ? ' of unit %{customdata[2]}' : '') + '<extra></extra>',
         },
         {
             x: data.sites.flatMap(s => s.sample_ages.map(() => s.name)),
@@ -529,13 +599,95 @@ async function loadSites() {
     const errors = data.sites.map(s => ({ name: s.name, err: s.ages.neukum2001.median - Math.min(...s.sample_ages),
                                           count: s.ages.neukum2001.count }));
     const worst = errors.reduce((a, b) => (Math.abs(b.err) > Math.abs(a.err) ? b : a));
+    const meanError = errors.reduce((sum, e) => sum + Math.abs(e.err), 0) / errors.length;
     const fewest = errors.reduce((a, b) => (b.count < a.count ? b : a));
     document.getElementById('sites-finding').innerHTML =
-        `At ${radius} km the worst is <strong>${worst.name}</strong>, ` +
-        `${formatNumber(Math.abs(worst.err), 2)} billion years too ${worst.err > 0 ? 'old' : 'young'}. ` +
-        `Shrink the circle and less foreign terrain gets in, but fewer craters are left to count ` +
-        `(${fewest.name}: ${Math.round(fewest.count)}), so the noise grows instead. ` +
-        `The way out is the one crater counters use: map the lava flow, and count only on it.`;
+        `${label}: the ages are off by <strong>${formatNumber(meanError, 2)} billion years</strong> on average; ` +
+        `the worst is ${worst.name}, ${formatNumber(Math.abs(worst.err), 2)} too ${worst.err > 0 ? 'old' : 'young'}. ` +
+        (countArea === 'circle'
+            ? 'Switch to <strong>Mapped unit</strong> to count only on the lava flow each site sits on.'
+            : `Counting on the unit helps, but the young basalts of Chang'e-5 and Chang'e-6 still read far too old ` +
+              `(see the ghost craters below). Fewest craters: ${fewest.name}, ${Math.round(fewest.count)}.`);
+
+    renderSiteDetail();
+}
+
+async function renderSiteDetail() {
+    const select = document.getElementById('site-select');
+    if (!select.options.length) {
+        select.innerHTML = unitSites.sites.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+        select.value = 'change5';
+    }
+    const radius = Number(document.getElementById('radius-slider').value);
+    const site = unitSites.sites.find(s => s.id === select.value);
+    const request = ++siteDetailRequest;
+    let detail;
+    try {
+        detail = await apiGet(`/api/surface-age/sites/${site.id}?radius_km=${radius}`);
+    } catch (e) {
+        showToast(`Site map failed: ${e.message}`, 'error');
+        return;
+    }
+    if (request !== siteDetailRequest) return;
+
+    // Map: lon/lat with the x axis shrunk by cos(lat) so shapes look right
+    const c = detail.craters;
+    const cosLat = Math.cos(detail.latitude * Math.PI / 180);
+    const circle = Array.from({ length: 121 }, (_, i) => {
+        const a = i / 120 * 2 * Math.PI, r = radius / 1737.4 * 180 / Math.PI;
+        return [detail.longitude + r * Math.sin(a) / cosLat, detail.latitude + r * Math.cos(a)];
+    });
+    const craterTrace = (onUnit, name, color) => {
+        const idx = c.on_unit.map((f, i) => (f === onUnit ? i : -1)).filter(i => i >= 0);
+        return {
+            x: idx.map(i => c.longitude[i]), y: idx.map(i => c.latitude[i]), mode: 'markers', name,
+            marker: { color, size: idx.map(i => Math.max(3, Math.min(18, c.diameter[i] * 2))), opacity: 0.8 },
+            customdata: idx.map(i => c.diameter[i]),
+            hovertemplate: '%{customdata:.1f} km<extra></extra>',
+        };
+    };
+    const outline = detail.unit.outline.flatMap(ring => [...ring, [null, null]]);
+    Plotly.newPlot('chart-site-map', [
+        craterTrace(0, 'Crater off the unit', 'rgba(160, 170, 186, 0.45)'),
+        craterTrace(1, `Crater on unit ${detail.unit.code}`, COLORS.neukum2001),
+        { x: outline.map(p => p[0]), y: outline.map(p => p[1]), mode: 'markers', name: 'Unit boundary',
+          marker: { color: '#f2c66d', size: 2 }, hoverinfo: 'skip' },
+        { x: circle.map(p => p[0]), y: circle.map(p => p[1]), mode: 'lines', name: `${radius} km`,
+          line: { color: '#a0aaba', width: 1, dash: 'dot' }, hoverinfo: 'skip' },
+        { x: [detail.longitude], y: [detail.latitude], mode: 'markers', name: 'Landing site',
+          marker: { color: COLORS.sample, size: 12, symbol: 'star' } },
+    ], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: `${detail.name}: ${detail.unit.code}, ${detail.unit.period} ${detail.unit.description.toLowerCase()}`,
+                 font: { size: 13, color: '#dfe4ec' }, x: 0.01, xanchor: 'left' },
+        // Explicit types: Plotly guesses "category" when a trace starts with nulls
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Longitude (°)', type: 'linear', scaleanchor: 'y', scaleratio: cosLat },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Latitude (°)', type: 'linear' },
+        legend: { orientation: 'h', y: -0.25, font: { size: 10 } },
+    }, PLOTLY_CONFIG);
+
+    const fits = site.age_by_d_min;
+    const sample = Math.min(...site.sample_ages);
+    Plotly.newPlot('chart-site-dmin', [{
+        x: fits.map(f => f.d_min), y: fits.map(f => f.median), mode: 'markers+lines', name: 'Crater-count age',
+        error_y: { type: 'data', symmetric: false, array: fits.map(f => f.p95 - f.median),
+                   arrayminus: fits.map(f => f.median - f.p5), color: COLORS.neukum2001 },
+        marker: { color: COLORS.neukum2001, size: 9 }, line: { color: COLORS.neukum2001, dash: 'dot' },
+        customdata: fits.map(f => Math.round(f.count)),
+        hovertemplate: '≥ %{x} km: %{y:.2f} Gyr (%{customdata} craters)<extra></extra>',
+    }], {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        title: { text: 'Age vs smallest crater counted (on the unit)', font: { size: 13, color: '#dfe4ec' },
+                 x: 0.01, xanchor: 'left' },
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Smallest crater counted (km)', type: 'log',
+                 tickvals: fits.map(f => f.d_min), ticktext: fits.map(f => String(f.d_min)) },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Age (Gyr)', range: [1.5, 4.3] },
+        shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: sample, y1: sample,
+                   line: { color: COLORS.sample, width: 2, dash: 'dash' } }],
+        annotations: [{ xref: 'paper', x: 0.02, y: sample, yanchor: 'top', xanchor: 'left', showarrow: false,
+                        text: `Samples: ${sample} Gyr`, font: { color: COLORS.sample } }],
+        showlegend: false,
+    }, PLOTLY_CONFIG);
 }
 
 // ---------------------------------------------------------------------------
@@ -547,11 +699,18 @@ document.getElementById('age-slider').addEventListener('input', e => {
 });
 document.getElementById('age-slider').addEventListener('change', loadSurface);
 document.getElementById('btn-new').addEventListener('click', () => { seed += 1; loadSurface(); });
-document.getElementById('btn-play').addEventListener('click', play);
+document.getElementById('btn-play').addEventListener('click', () => sim && play());
 document.getElementById('time-slider').addEventListener('input', e => {
+    if (!sim) return;
     stopPlaying();
     setTime(sim.age * (1 - Number(e.target.value) / 1000));
 });
+document.querySelectorAll('.toggle__btn').forEach(btn => btn.addEventListener('click', () => {
+    countArea = btn.dataset.area;
+    document.querySelectorAll('.toggle__btn').forEach(b => b.classList.toggle('toggle__btn--active', b === btn));
+    loadSites();
+}));
+document.getElementById('site-select').addEventListener('change', renderSiteDetail);
 let radiusTimer = null;
 document.getElementById('radius-slider').addEventListener('input', e => {
     document.getElementById('radius-label').textContent = e.target.value;

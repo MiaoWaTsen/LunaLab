@@ -13,7 +13,7 @@ It does NOT contain any simulation math or direct SQL.
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Response, Header, Depends, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from backend.schemas import (
     SimulationRequest,
@@ -114,6 +115,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# The science endpoints return long arrays of numbers, which compress ~3x.
+# Level 1: on the 1 MB synthetic surface, level 9 (the default) takes ~0.9 s
+# to save another 20%; level 1 takes ~15 ms.
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
 
 # Allow frontend (served on same origin or dev server) to call the API
 app.add_middleware(
@@ -578,18 +584,19 @@ def get_change6_analysis():
 
 @app.get("/api/surface-age/sites")
 def get_landing_site_ages(
-    radius_km: float = Query(100.0, ge=10.0, le=150.0),
+    radius_km: float = Query(100.0, ge=25.0, le=150.0, description="Multiple of 5 km"),
     d_min: float = Query(1.0, ge=1.0, le=50.0),
     d_max: float = Query(20.0, gt=1.0, le=300.0),
+    count_area: Literal["circle", "unit"] = Query("circle"),
 ):
     try:
-        return landing_site_ages(radius_km, d_min, d_max)
+        return landing_site_ages(radius_km, d_min, d_max, count_area)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.get("/api/surface-age/sites/{site_id}")
-def get_landing_site_craters(site_id: str, radius_km: float = Query(100.0, ge=10.0, le=150.0)):
+def get_landing_site_craters(site_id: str, radius_km: float = Query(100.0, ge=25.0, le=150.0)):
     if site_id not in SITES_BY_ID:
         raise HTTPException(status_code=404, detail="Landing site not found.")
     return landing_site_craters(site_id, radius_km)

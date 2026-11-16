@@ -459,7 +459,21 @@ class TestSurfaceAge:
     def test_site_craters(self, client):
         body = client.get("/api/surface-age/sites/change5", params={"radius_km": 50}).json()
         assert body["name"] == "Chang'e-5"
-        assert len(body["craters"]["diameter"]) == len(body["sfd"]["diameter"])
+        assert len(body["craters"]["diameter"]) == len(body["craters"]["on_unit"])
+        assert body["unit"]["code"] == "Em"
 
     def test_unknown_site_is_404(self, client):
         assert client.get("/api/surface-age/sites/apollo99").status_code == 404
+
+
+class TestSurfaceAgeUnits:
+    def test_unit_count_area(self, client):
+        body = client.get("/api/surface-age/sites", params={"radius_km": 150, "count_area": "unit"}).json()
+        assert body["count_area"] == "unit"
+        assert all("unit" in s and s["age_by_d_min"] for s in body["sites"])
+
+    def test_bad_count_area_rejected(self, client):
+        assert client.get("/api/surface-age/sites", params={"count_area": "square"}).status_code == 422
+
+    def test_radius_off_the_grid_rejected(self, client):
+        assert client.get("/api/surface-age/sites", params={"radius_km": 42}).status_code == 422

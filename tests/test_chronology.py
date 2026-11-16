@@ -244,7 +244,10 @@ def test_great_circle_and_cap_area():
     assert spherical_cap_area_km2(10.0) == pytest.approx(math.pi * 100.0, rel=1e-4)
 
 
-@pytest.fixture(scope="module")
+# Function-scoped on purpose: mutmut 3 runs, for each mutant, only the tests
+# that called the mutated function.  A module-scoped fixture is computed during
+# the first test alone, so the others would never see the mutant.
+@pytest.fixture
 def change6():
     return change6_analysis()
 
@@ -275,7 +278,7 @@ def test_yue_chronology_is_closer_for_change6(change6):
     assert abs(yue - 2.807) < abs(neukum - 2.807)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def circles():
     return landing_site_ages(100.0, 1.0, 20.0)
 
@@ -325,3 +328,230 @@ def test_synthetic_history_payload():
     # the truth just outside the very narrow interval (the chronology is steep
     # here), but the median is still within a few tens of Myr
     assert h["fits"][0]["median"] == pytest.approx(3.8, abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Mapped geological units
+# ---------------------------------------------------------------------------
+
+def test_point_in_polygon_handles_holes():
+    from scripts.build_crater_data import points_in_polygon
+    outer = np.array([[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], float)
+    hole = np.array([[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]], float)
+    inside = points_in_polygon([1, 5, 11, 5], [1, 5, 5, 9], [outer, hole])
+    assert inside.tolist() == [True, False, False, True]
+
+
+def test_unit_area_integral_matches_the_map():
+    # The Chang'e-6 unit lies entirely within 150 km, so the grid integral
+    # must reproduce the map's own geodesic area
+    from simulation.surface_dating import load_landing_site_craters
+    unit = load_landing_site_craters()["units"]["change6"]
+    assert unit["area_by_radius_km2"]["150"] == pytest.approx(unit["unit_area_km2"], rel=0.005)
+
+
+def test_unit_area_grows_with_radius_and_fits_in_the_circle():
+    from simulation.surface_dating import load_landing_site_craters
+    for site_id, unit in load_landing_site_craters()["units"].items():
+        areas = [unit["area_by_radius_km2"][str(r)] for r in range(25, 155, 5)]
+        assert all(a <= b for a, b in zip(areas, areas[1:])), site_id
+        assert all(a <= spherical_cap_area_km2(r) * 1.01 for a, r in zip(areas, range(25, 155, 5))), site_id
+
+
+@pytest.fixture
+def units_150():
+    return landing_site_ages(150.0, 1.0, 20.0, count_area="unit")
+
+
+def test_unit_counts_are_a_subset_of_the_circle(units_150):
+    circles = landing_site_ages(150.0, 1.0, 20.0, count_area="circle")
+    for unit_site, circle_site in zip(units_150["sites"], circles["sites"]):
+        assert unit_site["ages"]["neukum2001"]["count"] <= circle_site["ages"]["neukum2001"]["count"]
+        assert unit_site["area_km2"] <= circle_site["area_km2"]
+
+
+def test_counting_on_the_unit_helps_the_young_basalts(units_150):
+    circles = {s["id"]: s for s in landing_site_ages(150.0, 1.0, 20.0)["sites"]}
+    for site in units_150["sites"]:
+        if site["id"] in ("change5", "change6"):
+            sample = site["sample_ages"][0]
+            assert abs(site["ages"]["neukum2001"]["median"] - sample) < abs(circles[site["id"]]["ages"]["neukum2001"]["median"] - sample)
+
+
+def test_young_basalts_still_read_too_old_from_kilometre_craters(units_150):
+    by_id = {s["id"]: s for s in units_150["sites"]}
+    for site_id in ("change5", "change6"):
+        assert by_id[site_id]["ages"]["neukum2001"]["median"] - by_id[site_id]["sample_ages"][0] > 0.5
+
+
+def test_resurfacing_signature_on_the_young_basalts(units_150):
+    # Ghost craters of the older floor: the age climbs with the smallest crater counted
+    by_id = {s["id"]: s for s in units_150["sites"]}
+    for site_id in ("change5", "change6"):
+        medians = [f["median"] for f in by_id[site_id]["age_by_d_min"]]
+        assert all(a < b for a, b in zip(medians, medians[1:])), site_id
+
+
+def test_unknown_count_area_and_radius_rejected():
+    with pytest.raises(ValueError):
+        landing_site_ages(100.0, count_area="square")
+    with pytest.raises(ValueError):
+        landing_site_ages(42.0, count_area="unit")
+
+
+def test_site_craters_carry_unit_flags_and_outline():
+    site = landing_site_craters("change5", 150.0)
+    flags = site["craters"]["on_unit"]
+    assert set(flags) == {0, 1}
+    assert site["unit"]["code"] == "Em"
+    assert len(site["unit"]["outline"]) >= 1
+
+
+def test_synthetic_history_caps_craters_for_the_browser():
+    # The page's own settings stay well inside the cap...
+    synthetic_history(4.3, 40.0, 0.4)
+    # ...but the API's extreme corner would send ~130k craters
+    with pytest.raises(ValueError, match="limit 50,000"):
+        synthetic_history(4.3, 60.0, 0.3)
+
+
+# ---------------------------------------------------------------------------
+# Gaps found by mutation testing
+# ---------------------------------------------------------------------------
+
+from simulation.surface_dating import _weighted_cumulative  # noqa: E402
+
+
+def test_fresh_surface_has_no_craters():
+    assert float(NEUKUM_2001.n1(0.0)) == 0.0
+    assert NEUKUM_2001.age(0.0) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_chronology_errors_explain_themselves():
+    with pytest.raises(ValueError, match="≥ 0"):
+        NEUKUM_2001.age(-1.0)
+    with pytest.raises(ValueError, match="5 Gyr"):
+        NEUKUM_2001.age(1e6)
+    with pytest.raises(ValueError, match="fit range"):
+        infer_age([1.0], 100.0, 0.001)
+    with pytest.raises(ValueError, match="age and size"):
+        bombard(0.0, 10.0, 0.5)
+
+
+def test_finite_fit_window_recovers_the_age():
+    # Craters only between 1 and 2 km: the expected count uses S(1) − S(2)
+    area, age = 50_000.0, 3.6
+    n = area * NEUKUM_2001.n1(age) * (production_shape(1.0) - production_shape(2.0))
+    fit = infer_age(np.full(int(round(float(n))), 1.5), area, 1.0, 2.0)
+    assert fit["median"] == pytest.approx(age, abs=0.02)
+    # ...and reports the N(1) density that count implies
+    assert fit["n1"] == pytest.approx(float(NEUKUM_2001.n1(age)), rel=0.01)
+
+
+def test_small_areas_and_the_smallest_pf_diameter_are_allowed():
+    assert infer_age([0.02], 0.5, 0.01)["count"] == 1
+    infer_age([0.02], 100.0, 0.01, 0.05)
+
+
+def test_age_zero_only_when_nothing_was_counted():
+    none = infer_age([], 1000.0, 1.0)
+    one = infer_age([2.0], 1000.0, 1.0)
+    # No craters: the most likely age is zero; one crater rules zero out
+    assert none["posterior"][0] == none["posterior"].max()
+    assert one["posterior"][0] == 0.0
+
+
+def test_bombardment_rejects_empty_surfaces():
+    with pytest.raises(ValueError):
+        bombard(1.0, 0.0, 0.5)
+
+
+def test_bombardment_defaults_and_coverage():
+    s = bombard(3.9, 30.0, 0.4, seed=6, erase=False)
+    assert s["d_max"] == 15.0                               # half the surface
+    assert s["x"].min() < 0.5 and s["y"].min() < 0.5          # craters reach every edge
+    assert s["x"].max() > 29.5 and s["y"].max() > 29.5
+    assert np.isnan(s["erased"]).all()                       # nothing erased without erasure
+
+
+def test_bombardment_crater_count_matches_expectation():
+    # Poisson mean = area · N1(T) · (S(d_min) − S(d_max)); average over seeds
+    counts = [len(bombard(3.0, 40.0, 0.5, seed=k, erase=False)["x"]) for k in range(30)]
+    expected = 1600.0 * NEUKUM_2001.n1(3.0) * (production_shape(0.5) - production_shape(20.0))
+    assert np.mean(counts) == pytest.approx(float(expected), rel=0.05)
+
+
+def test_weighted_cumulative_density_and_errors():
+    sfd = _weighted_cumulative([1.0, 3.0, 2.0], [1.0, 0.5, 1.0], 10.0)
+    assert sfd["diameter"] == [3.0, 2.0, 1.0]
+    assert sfd["density"] == pytest.approx([0.05, 0.15, 0.25])
+    assert sfd["error"] == pytest.approx([math.sqrt(0.5) / 10, math.sqrt(1.5) / 10, math.sqrt(2.5) / 10])
+
+
+def test_great_circle_along_a_meridian_and_off_the_equator():
+    assert great_circle_km(0, 0, 90, 0) == pytest.approx(math.pi * 1737.4 / 2)
+    # 45°N, 90° apart in longitude: a 60° central angle
+    assert great_circle_km(45, 0, 45, 90) == pytest.approx(math.pi * 1737.4 / 3)
+
+
+def test_landing_site_craters_report_diameters():
+    from simulation.surface_dating import _site_rows
+    rows = _site_rows("change5")
+    site = landing_site_craters("change5", 150.0)
+    assert site["craters"]["diameter"] == rows[rows[:, 3] <= 150.0][:, 2].tolist()
+    assert site["craters"]["on_unit"] == rows[rows[:, 3] <= 150.0][:, 4].astype(int).tolist()
+
+
+def test_count_area_errors_explain_themselves():
+    with pytest.raises(ValueError, match="count_area"):
+        landing_site_ages(100.0, count_area="square")
+    with pytest.raises(ValueError, match="radius"):
+        landing_site_ages(42.0)
+    with pytest.raises(ValueError, match="d_min"):
+        landing_site_ages(100.0, 0.5)
+
+
+def test_isochron_scales_with_the_production_function():
+    assert float(cumulative_density(2.0, 3.0)) == pytest.approx(float(NEUKUM_2001.n1(3.0) * production_shape(2.0)))
+
+
+def test_crater_at_the_fit_minimum_is_counted():
+    assert infer_age([1.0], 1000.0, 1.0)["count"] == 1
+
+
+def test_no_craters_posterior_is_flat_near_zero():
+    # λ(1 Myr) is tiny, so with nothing counted 0 and 1 Myr are equally likely
+    post = infer_age([], 100.0, 1.0)["posterior"]
+    assert post[0] == pytest.approx(post[1], rel=1e-3)
+
+
+def test_bombardment_count_in_a_narrow_size_window():
+    # 0.5-0.7 km: S(d_max) is most of S(d_min), so a sign slip in the window shows
+    counts = [len(bombard(3.0, 40.0, 0.5, d_max=0.7, seed=k, erase=False)["x"]) for k in range(30)]
+    expected = 1600.0 * NEUKUM_2001.n1(3.0) * (production_shape(0.5) - production_shape(0.7))
+    assert np.mean(counts) == pytest.approx(float(expected), rel=0.08)
+
+
+def test_synthetic_history_marks_erased_craters():
+    h = synthetic_history(4.2, 30.0, 0.4)
+    erased = h["craters"]["erased"]
+    assert any(e is not None for e in erased) and any(e is None for e in erased)
+    # Fits use today's surface: the smallest-crater fit counts every survivor
+    assert h["fits"][0]["count"] == h["history"]["visible"][-1]
+
+
+def test_change6_counts_partial_craters_and_has_coordinates(change6):
+    fit = change6["fits"]["neukum2001"][0]          # d_min = 50 m
+    d = np.array(change6["craters"]["diameter"]); f = np.array(change6["craters"]["fraction"])
+    assert fit["count"] == pytest.approx(f[d >= 0.05].sum())
+    assert fit["count"] != pytest.approx(float((d >= 0.05).sum()))
+    lon, lat = change6["craters"]["longitude"], change6["craters"]["latitude"]
+    assert -155 < min(lon) and max(lon) < -153 and -42.5 < min(lat) and max(lat) < -41
+
+
+def test_landing_site_ages_defaults_and_chronologies():
+    result = landing_site_ages()
+    assert (result["radius_km"], result["d_min"], result["d_max"], result["count_area"]) == (100.0, 1.0, 20.0, "circle")
+    # The two chronologies give different ages from the same count
+    site = result["sites"][0]
+    assert site["ages"]["neukum2001"]["median"] != site["ages"]["yue2022"]["median"]

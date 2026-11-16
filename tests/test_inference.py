@@ -74,7 +74,10 @@ def test_default_material_switches_at_the_regolith_limit():
 # Priors
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+# Function-scoped on purpose: mutmut 3 runs, for each mutant, only the tests
+# that called the mutated function.  A module-scoped fixture is computed during
+# the first test alone, so the others would never see the mutant.
+@pytest.fixture
 def prior():
     return sample_prior(Observation(1000.0), Priors(), 200_000, np.random.default_rng(0))
 
@@ -156,7 +159,7 @@ def test_credible_intervals_are_calibrated(material, crater_scale):
 # 3. What the inversion shows
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def small_crater():
     return infer(Observation(18.8))
 
@@ -211,7 +214,7 @@ def test_invalid_observations_rejected():
 # The 2013-03-17 event: crater + flash → luminous efficiency
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def flash_2013():
     return infer(Observation(18.8, luminous_energy=7.1e6, velocity=25_600.0))
 
@@ -232,3 +235,68 @@ def test_flash_tightens_the_mass_estimate(flash_2013, small_crater):
 
 def test_flash_event_has_usable_sample_size(flash_2013):
     assert flash_2013["effective_sample_size"] > 300
+
+
+# ---------------------------------------------------------------------------
+# Gaps found by mutation testing
+# ---------------------------------------------------------------------------
+
+def test_vectorised_model_matches_in_the_strength_regime():
+    # Centimetre impactors at low speed: regolith cohesion, not gravity, limits
+    # the crater, a corner the random comparison above rarely reaches
+    d = np.array([0.01, 0.02, 0.05])
+    v = np.array([3_000.0, 5_000.0, 2_500.0])
+    angle = np.array([90.0, 45.0, 30.0])
+    rho_i = np.array([3000.0, 2000.0, 7800.0])
+    rho_t = np.array([1500.0, 1300.0, 1800.0])
+    vectorised = crater_diameter(d, v, angle, rho_i, rho_t, "regolith")
+    for i in range(3):
+        expected = run_simulation(ImpactParameters(
+            impactor_diameter=d[i], impact_velocity=v[i], impact_angle=angle[i],
+            impactor_density=rho_i[i], target_density=rho_t[i], target_material="regolith",
+        )).crater_diameter
+        assert vectorised[i] == pytest.approx(expected, rel=1e-6, abs=1e-4)
+
+
+def test_contradictory_observations_still_give_a_finite_posterior():
+    # A flash a million times too bright for the crater: every candidate is
+    # very unlikely, so the weights must be normalised against the best one
+    # or they all underflow to zero
+    result = infer(Observation(18.8, diameter_error=0.01, luminous_energy=1e13,
+                               luminous_energy_error=0.01, velocity=25_600.0), samples=20_000)
+    p = result["parameters"]["impactor_diameter"]["posterior"]
+    assert all(math.isfinite(v) for v in p.values())
+    assert result["effective_sample_size"] >= 1
+
+
+def test_unknown_material_error_names_the_choices():
+    with pytest.raises(ValueError, match="regolith"):
+        crater_diameter(np.ones(1), np.ones(1), np.ones(1), np.ones(1), np.ones(1), "cheese")
+
+
+def test_known_velocity_centres_the_eta_prior():
+    obs = Observation(18.8, luminous_energy=7.1e6, velocity=25_600.0)
+    from simulation.case_studies import suggs_luminous_efficiency
+    s = sample_prior(obs, Priors(), 50_000, np.random.default_rng(0))
+    assert np.median(s["luminous_efficiency"]) == pytest.approx(suggs_luminous_efficiency(25_600.0), rel=0.03)
+
+
+def test_derived_mass_and_energy():
+    from simulation.inference import derived_quantities
+    sample = {"impactor_diameter": np.array([2.0]), "impactor_density": np.array([3000.0]), "velocity": np.array([10_000.0])}
+    q = derived_quantities(sample)
+    assert q["mass"][0] == pytest.approx(math.pi / 6 * 8 * 3000)
+    assert q["kinetic_energy"][0] == pytest.approx(0.5 * math.pi / 6 * 8 * 3000 * 1e8)
+
+
+def test_effective_sample_size_bounds():
+    # A useless measurement (error ×100) barely weights the draws: ESS near the count
+    vague = infer(Observation(500.0, diameter_error=1.0), samples=20_000)
+    assert vague["effective_sample_size"] <= 20_000
+    assert vague["effective_sample_size"] > 2_000
+
+
+def test_narrowing_is_the_ratio_of_log_widths_for_scale_parameters():
+    p = infer(Observation(500.0), samples=50_000)["parameters"]["impactor_diameter"]
+    log_width = lambda s: math.log(s["p95"] / s["p5"])
+    assert p["narrowing"] == pytest.approx(log_width(p["posterior"]) / log_width(p["prior"]), rel=1e-9)

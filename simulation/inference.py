@@ -197,7 +197,8 @@ def log_likelihood(obs: Observation, sample: dict) -> np.ndarray:
     sigma = math.log1p(obs.diameter_error)
     log_l = -0.5 * ((np.log(predicted) - math.log(obs.crater_diameter)) / sigma) ** 2
     if obs.luminous_energy is not None:
-        light = sample["luminous_efficiency"] * derived_quantities(sample)["kinetic_energy"]
+        energy = sample["kinetic_energy"] if "kinetic_energy" in sample else derived_quantities(sample)["kinetic_energy"]
+        light = sample["luminous_efficiency"] * energy
         sigma = math.log1p(obs.luminous_energy_error)
         log_l += -0.5 * ((np.log(light) - math.log(obs.luminous_energy)) / sigma) ** 2
     return log_l
@@ -250,9 +251,16 @@ PRESETS = [
 # Inference
 # ---------------------------------------------------------------------------
 
-def _summary(values: np.ndarray) -> dict:
+PRIOR_SUMMARY_SAMPLES = 100_000
+# Scale parameters, whose spread is compared in log space
+LOG_SCALE = {"impactor_diameter", "mass", "kinetic_energy", "luminous_efficiency"}
+
+
+def _summary_and_width(values: np.ndarray, name: str) -> tuple[dict, float]:
+    """5/50/95th percentiles, and the 90% width (in log space for scale parameters)."""
     p5, p50, p95 = np.percentile(values, [5, 50, 95])
-    return {"p5": float(p5), "p50": float(p50), "p95": float(p95)}
+    width = math.log(p95 / p5) if name in LOG_SCALE else p95 - p5
+    return {"p5": float(p5), "p50": float(p50), "p95": float(p95)}, width
 
 
 def infer(
@@ -289,13 +297,16 @@ def infer(
     posterior = {name: values[picked] for name, values in prior.items()}
 
     names = list(prior)
-    # How much the crater narrowed each parameter: posterior 90% width over
-    # prior 90% width, in log space for the scale parameters
-    log_scale = {"impactor_diameter", "mass", "kinetic_energy", "luminous_efficiency"}
-
-    def width(values, name):
-        p5, p95 = np.percentile(np.log(values) if name in log_scale else values, [5, 95])
-        return p95 - p5
+    # Prior draws are independent, so the first 100k summarise the prior as
+    # well as all of them, at a tenth of the sorting cost
+    prior_view = {name: values[:PRIOR_SUMMARY_SAMPLES] for name, values in prior.items()}
+    parameters = {}
+    for name in names:
+        prior_stats, prior_width = _summary_and_width(prior_view[name], name)
+        post_stats, post_width = _summary_and_width(posterior[name], name)
+        # How much the crater narrowed this parameter: posterior 90% width
+        # over prior 90% width
+        parameters[name] = {"prior": prior_stats, "posterior": post_stats, "narrowing": float(post_width / prior_width)}
 
     return {
         "observation": {
@@ -307,14 +318,7 @@ def infer(
         },
         "effective_sample_size": ess,
         "prior_samples": samples,
-        "parameters": {
-            name: {
-                "prior": _summary(prior[name]),
-                "posterior": _summary(posterior[name]),
-                "narrowing": float(width(posterior[name], name) / width(prior[name], name)),
-            }
-            for name in names
-        },
+        "parameters": parameters,
         "posterior_samples": {name: posterior[name].tolist() for name in names},
         # A matching prior subsample, to draw prior vs posterior side by side
         "prior_draws": {name: prior[name][:posterior_samples].tolist() for name in names},

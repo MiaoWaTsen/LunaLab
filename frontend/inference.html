@@ -218,6 +218,7 @@ const POSTERIOR_COLOR = '#67d4e8';
 const PRIOR_COLOR = 'rgba(160, 170, 186, 0.35)';
 
 let presets = [];
+let inferenceRequest = 0;
 
 init();
 
@@ -281,16 +282,22 @@ async function runInference(request) {
     loading.classList.remove('hidden');
     error.classList.add('hidden');
     button.disabled = true;
+    const id = ++inferenceRequest;
     try {
         const result = await apiPost('/api/inference', request);
+        // Clicking presets in quick succession: only the last one renders
+        if (id !== inferenceRequest) return;
         document.getElementById('inf-content').classList.remove('hidden');
         render(result);
     } catch (e) {
+        if (id !== inferenceRequest) return;
         error.textContent = `Inference failed: ${e.message}`;
         error.classList.remove('hidden');
     } finally {
-        loading.classList.add('hidden');
-        button.disabled = false;
+        if (id === inferenceRequest) {
+            loading.classList.add('hidden');
+            button.disabled = false;
+        }
     }
 }
 
