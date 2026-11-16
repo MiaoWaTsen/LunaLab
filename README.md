@@ -63,7 +63,8 @@ LunaLab/
 │
 ├── database/                # Data persistence layer
 │   ├── __init__.py
-│   └── models.py            # SQLite schema & CRUD operations
+│   ├── models.py            # Connections & CRUD (SQLite or PostgreSQL)
+│   └── migrations.py        # Numbered schema migrations
 │
 ├── frontend/                # Static frontend files
 │   ├── index.html           # Dashboard

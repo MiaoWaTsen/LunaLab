@@ -17,7 +17,9 @@ import pytest
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip() or None
 
-_TABLES = "challenge_records, user_sessions, users, experiments"
+# schema_migrations too: with it left behind, init_db would see every
+# migration as applied and recreate nothing
+_TABLES = "challenge_records, user_sessions, users, experiments, schema_migrations"
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
