@@ -218,7 +218,8 @@ function formatNumber(value, decimals = 2) {
 function formatDate(isoString) {
     if (!isoString) return '—';
     const d = new Date(isoString);
-    return d.toLocaleDateString(undefined, {
+    // In the interface language (i18n.js sets <html lang>), not the browser's
+    return d.toLocaleDateString(document.documentElement.lang || undefined, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -527,7 +528,7 @@ function updateNavUser() {
     if (user) {
         container.innerHTML = `
             <div class="user-badge" title="${escapeHtml(user.rank_title)}">
-                <span class="user-badge__name">${escapeHtml(user.username)}</span>
+                <span class="user-badge__name" translate="no">${escapeHtml(user.username)}</span>
                 <span class="user-badge__rank">Lv.${user.level}</span>
                 <span class="user-badge__xp">${user.xp} XP</span>
                 <button type="button" class="btn btn--ghost btn--sm" onclick="logoutCommander()" title="Logout" style="padding: 2px 6px; font-size: 0.75rem; color: var(--text-muted);">
@@ -558,10 +559,18 @@ function setupNavMenu() {
     toggle.className = 'navbar__toggle';
     toggle.setAttribute('aria-controls', links.id);
     toggle.setAttribute('aria-expanded', 'false');
-    const current = links.querySelector('.navbar__link--active')?.textContent.trim() || 'Menu';
+    toggle.title = 'Menu';
+    // The label repeats the active link, which i18n.js translates: copy it,
+    // and copy it again when the language changes, rather than translate twice
     toggle.innerHTML = '<span class="navbar__toggle-bars" aria-hidden="true"></span>'
-        + `<span class="navbar__toggle-label">${escapeHtml(current)}</span>`;
-    toggle.setAttribute('aria-label', `Menu, current page: ${current}`);
+        + '<span class="navbar__toggle-label" translate="no"></span>';
+    const label = toggle.querySelector('.navbar__toggle-label');
+    const syncLabel = () => {
+        label.textContent = links.querySelector('.navbar__link--active')?.textContent.trim() || 'Menu';
+    };
+    syncLabel();
+    document.addEventListener('lunalab:languagechange', syncLabel);
+    window.LunaI18n?.ready.then(syncLabel);
     links.before(toggle);
     nav.classList.add('navbar--js');
 
@@ -595,6 +604,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         slot.style.gap = '8px';
         slot.style.marginLeft = 'auto';
         navInner.appendChild(slot);
+        // The language button (i18n.js) sits just left of the user badge
+        const languageButton = navInner.querySelector('.lang-select');
+        if (languageButton) {
+            navInner.insertBefore(languageButton, slot);
+            slot.style.marginLeft = '0';
+        }
     }
 
     // Show the signed-in user at once from the last known profile, so the

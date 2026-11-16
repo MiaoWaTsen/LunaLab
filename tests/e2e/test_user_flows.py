@@ -444,3 +444,82 @@ def test_phone_menu_opens_navigates_and_fits_the_screen(browser, server):
             assert widths[0] <= widths[1] + 1, f"{path} is {widths[0]}px wide on a {widths[1]}px screen"
     finally:
         ctx.close()
+
+
+def choose_language(page, code):
+    page.select_option(".lang-select__menu", code)
+    page.wait_for_function("code => document.documentElement.lang === code", arg=code)
+
+
+def test_language_button_translates_the_page_and_the_choice_persists(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+    assert page.inner_text(".page-header__title") == "Batch Inference"
+
+    choose_language(page, "de")
+    assert page.inner_text(".page-header__title") == "Stapel-Inferenz"
+    assert page.inner_text(".navbar__link--active") == "Stapel"
+    assert page.title() == "LunaLab — Stapel-Inferenz"
+    assert page.get_attribute("label[for='in-seed']", "title") == "Derselbe Seed liefert exakt dasselbe Ergebnis"
+    # The card title keeps its icon element; only the words change
+    assert page.inner_text("#jobs-empty .empty-state__title") == "Noch keine Aufträge"
+
+    # Text a script writes later is translated as it appears, values and all
+    page.fill("#in-diameters", "18.8\n43\n2000")
+    page.wait_for_function("document.getElementById('diameter-hint').textContent === '3 Krater (Limit 500)'")
+
+    # The choice follows the user to the next page
+    goto(page, f"{base}/history")
+    page.wait_for_function("document.querySelector('.page-header__title').textContent === 'Experimentverlauf'")
+    assert page.input_value(".lang-select__menu") == "de"
+
+    # Switching again starts from the English source, not from the German
+    choose_language(page, "ja")
+    assert page.inner_text(".page-header__title") == "実験履歴"
+    choose_language(page, "zh-TW")
+    assert page.inner_text(".page-header__title") == "實驗歷史"
+    choose_language(page, "en")
+    assert page.inner_text(".page-header__title") == "Experiment History"
+    assert page.title() == "LunaLab — Experiment History"
+
+
+def test_translation_moves_inline_elements_without_replacing_them(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/inference")
+    paragraph = "p.explain:has(strong)"
+    page.wait_for_selector(paragraph)
+    # Tag the <strong> so we can tell the same element from a copy
+    page.evaluate("document.querySelector('p.explain strong').dataset.probe = 'original'")
+    choose_language(page, "fr")
+    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "énergie"
+    assert "le cratère fixe à peu près" in page.inner_text(paragraph)
+    choose_language(page, "en")
+    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "energy"
+
+
+def test_no_interface_text_is_left_untranslated(page, server):
+    """
+    Every language has the same rows (tests/test_i18n_messages.py), so one
+    language finding nothing missing means none of them is missing anything.
+    Text with numbers in it is data or a generated sentence, checked by eye;
+    Chinese text comes from the server's mission descriptions.
+    """
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    choose_language(page, "de")
+    missing = {}
+    for path in ("/", "/experiment", "/challenge", "/case-study", "/inference", "/batch",
+                 "/surface-age", "/history", "/compare", "/login"):
+        goto(page, f"{base}{path}")
+        page.wait_for_load_state("networkidle")
+        found = page.evaluate("""() => [...LunaI18n.missing].filter(text =>
+            !/\\d/.test(text.replace(/<\\/?\\d+\\/?>/g, '')) && !/[\\u4e00-\\u9fff]/.test(text))""")
+        if found:
+            missing[path] = found
+    assert not missing, missing
