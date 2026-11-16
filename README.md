@@ -12,12 +12,14 @@ LunaLab is a modular, web-based platform for simulating lunar impact craters usi
 
 1. **Run Simulations** — Input impactor parameters and compute crater dimensions
 2. **Visualise Results** — Interactive Plotly charts showing crater profiles and parameter comparisons
-3. **Save Experiments** — Every simulation is persisted to a SQLite database
+3. **Save Experiments** — Every simulation is persisted to a database (SQLite locally, PostgreSQL in production)
 4. **Browse History** — View, inspect, and manage past experiments
 5. **Compare Experiments** — Select multiple experiments for side-by-side visual comparison
 6. **Case Study** — Test the model against the 17 March 2013 impact, where both the flash and the LRO crater were measured: observing geometry from the ephemeris, Monte Carlo uncertainty propagation, and inversion for the luminous efficiency η
 7. **Impactor Inference** — Bayesian inversion from an observed crater back to the impactor: posterior over size, velocity, angle and density, the size–speed degeneracy, and (for impact flashes) the luminous efficiency; validated by simulation-based calibration
 8. **Surface Age** — Date a surface by counting its craters (Neukum 2001 production and chronology functions, Poisson likelihood): watch a synthetic plain collect craters over 4 billion years, see small craters saturate, then test the method on the Chang'e-6 landing site against its 2.807 Ga sample age, and on seven sampled landing sites counted in circles vs on their mapped geological units
+9. **3D Moon** — Pick the impact site on a globe built from LRO imagery and LOLA elevation, lit by the real Sun for the current date
+10. **Accounts & Missions** — Sign in to keep your own experiments, and earn research XP on challenge missions graded against known craters
 
 ---
 
@@ -32,7 +34,7 @@ Frontend (HTML / CSS / Vanilla JS)
        ↓
   Simulation Module (Pure Python)
        ↓
-  Database Module (SQLite)
+  Database Module (SQLite / PostgreSQL)
 ```
 
 ### Project Structure
@@ -52,14 +54,21 @@ LunaLab/
 │   ├── deps.py              # Authentication dependencies
 │   └── schemas.py           # Pydantic request/response models
 │
-├── simulation/              # Simulation engine (independent)
-│   ├── __init__.py
-│   ├── crater_model.py      # Crater scaling (Collins/Pike)
+├── simulation/              # Science (independent of the web layer)
+│   ├── crater_model.py      # Crater scaling (Collins/Pike, Holsapple regolith)
 │   ├── case_studies.py      # Model vs. the observed 2013-03-17 impact
 │   ├── inference.py         # Bayesian crater → impactor inversion
 │   ├── chronology.py        # Crater production/chronology functions, age inference
 │   ├── surface_dating.py    # Synthetic bombardment, Chang'e-6, landing sites
+│   ├── lunar_ephemeris.py   # Sun and Earth as seen from the Moon (Meeus)
+│   ├── challenges.py        # Challenge missions and their grading
 │   └── data/                # Crater counts (built by scripts/build_crater_data.py)
+│
+├── terrain/                 # Elevation: real and synthetic
+│   ├── lunar_surface.py     # LOLA elevation provider (+ procedural fallback)
+│   ├── crater_terrain.py    # Synthetic crater shape
+│   ├── asymmetric_crater.py # Oblique-impact asymmetry
+│   └── data/                # LOLA LDEM_4 grid
 │
 ├── database/                # Data persistence layer
 │   ├── __init__.py
@@ -67,31 +76,42 @@ LunaLab/
 │   └── migrations.py        # Numbered schema migrations
 │
 ├── frontend/                # Static frontend files
-│   ├── index.html           # Dashboard
+│   ├── moon.html, moon.js   # 3D Moon (home page)
 │   ├── experiment.html      # New experiment / view experiment
 │   ├── history.html         # Experiment history
 │   ├── compare.html         # Experiment comparison
+│   ├── challenge.html       # Challenge missions
+│   ├── case-study.html      # The 2013-03-17 impact
+│   ├── inference.html       # Impactor inference
+│   ├── surface-age.html     # Crater-count dating
+│   ├── login.html           # Sign in / register
+│   ├── index.html           # Earlier dashboard (reachable only at /static/index.html)
 │   ├── styles.css           # Design system
-│   └── app.js               # Shared JavaScript utilities
+│   ├── app.js               # Shared JavaScript utilities
+│   └── textures/            # Moon colour and height maps
 │
-├── tests/                   # Automated tests
-│   ├── __init__.py
-│   ├── test_simulation.py   # Simulation module tests (30 tests)
-│   ├── test_api.py          # API endpoint tests (15 tests)
-│   └── test_database.py     # Database CRUD tests (12 tests)
+├── scripts/
+│   └── build_crater_data.py # Rebuilds simulation/data/ from the source catalogues
 │
-└── lunalab.db               # SQLite database (auto-created)
+├── tests/                   # Automated tests (pytest)
+│   ├── conftest.py          # Runs database tests on SQLite and PostgreSQL
+│   ├── test_*.py            # Unit and API tests, one file per area
+│   └── e2e/                 # Browser tests (Playwright)
+│
+├── .github/workflows/       # CI: tests on PostgreSQL, then E2E
+└── lunalab.db               # SQLite database (auto-created, not tracked)
 ```
 
 ### Module Responsibilities
 
 | Module | Responsibility | Dependencies |
 |--------|---------------|-------------|
-| `simulation/` | Crater scaling calculations, validation, profile generation | None (pure Python + math) |
-| `database/` | SQLite schema, CRUD operations | sqlite3 (stdlib) |
-| `backend/` | HTTP routing, request validation, orchestration | FastAPI, simulation, database |
-| `frontend/` | UI, user interaction, visualisation | Plotly.js (CDN) |
-| `tests/` | Automated verification | pytest |
+| `simulation/` | Crater scaling, inference, chronology, ephemeris, challenge grading | numpy |
+| `terrain/` | Lunar elevation data and synthetic crater terrain | numpy |
+| `database/` | Schema migrations, CRUD operations | sqlite3 (stdlib), psycopg (PostgreSQL only) |
+| `backend/` | HTTP routing, request validation, orchestration | FastAPI, simulation, terrain, database |
+| `frontend/` | UI, user interaction, visualisation | Plotly.js, Three.js (CDN) |
+| `tests/` | Automated verification | pytest, Playwright (E2E only) |
 
 **Key design principle:** The simulation module can be imported and tested independently without any web server or database.
 
@@ -101,7 +121,7 @@ LunaLab/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11 (the version deployed and tested in CI; see `runtime.txt`)
 - pip
 
 ### Installation
@@ -124,12 +144,52 @@ The frontend is served from the same origin — no separate frontend server need
 ### Run Tests
 
 ```bash
-python3 -m pytest tests/ -v
+python3 -m pytest
 ```
+
+Two groups of tests need something extra and are skipped without it:
+
+- **PostgreSQL** — the database tests run on SQLite, and again on PostgreSQL when
+  `TEST_DATABASE_URL` points at a disposable database (the tests drop its tables):
+
+  ```bash
+  docker run -d --rm --name lunalab-pg -e POSTGRES_PASSWORD=postgres \
+      -e POSTGRES_DB=lunalab_test -p 55432:5432 postgres:16
+  TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/lunalab_test python3 -m pytest
+  docker stop lunalab-pg
+  ```
+
+- **End-to-end** — `tests/e2e/` drives a real browser:
+  `pip install playwright && python3 -m playwright install chromium`.
+
+CI runs both. `mutmut run` (configured in `setup.cfg`) mutation-tests the science modules.
+
+### Database Schema Changes
+
+The schema is defined by the numbered migrations in `database/migrations.py`, applied
+automatically at startup and recorded in the `schema_migrations` table. To change the
+schema, append a migration with the next version number; never edit a released one.
 
 ---
 
 ## API Reference
+
+Interactive documentation for every endpoint is served at `/docs`.
+
+| Area | Endpoints | Sign-in |
+|------|-----------|---------|
+| Accounts | `POST /api/auth/register`, `/login`, `/logout` · `GET /api/auth/me` | — |
+| Simulations | `POST /api/simulations` · `GET`/`DELETE /api/experiments/{id}` · `GET /api/experiments`, `/{id}/profile`, `/{id}/elevation` · `POST /api/experiments/compare` | required |
+| Challenges | `GET /api/challenges` · `POST /api/challenges/{id}/run` · `GET /api/challenges/history` | required, except the list |
+| Moon | `GET /api/moon/elevation`, `/illumination`, `/terrain-texture` | — |
+| Case studies | `GET /api/case-studies`, `/{id}` | — |
+| Inference | `GET /api/inference/presets` · `POST /api/inference` | required to run |
+| Surface age | `GET /api/surface-age/synthetic`, `/change6`, `/sites`, `/sites/{id}` | required for `synthetic` |
+
+Register or log in to get a token, then send it as `Authorization: Bearer <token>`.
+Sessions expire after 30 idle minutes. You only see your own experiments.
+
+The simulation endpoints in detail:
 
 ### `POST /api/simulations`
 
@@ -167,7 +227,7 @@ Only `impactor_diameter`, `impact_velocity`, and `impact_angle` are required. Ot
 
 ### `GET /api/experiments`
 
-List all experiments (newest first).
+List your experiments (newest first).
 
 ### `GET /api/experiments/{id}`
 
@@ -265,21 +325,26 @@ hydrocode-level oblique-impact physics.
 
 | Risk | Mitigation |
 |------|-----------|
-| Scientific Model Risk | Model is clearly labelled as simplified/prototype. Future: validate against reference cases. |
+| Scientific Model Risk | Model is clearly labelled as simplified, and tested against observed impacts and sample ages (`tests/test_real_impacts.py`, case study, Chang'e-6). |
 | Scope Risk | MVP priority levels (P0–P3). Architecture supports extension without rewrite. |
-| Technical Learning Risk | Simple stack: FastAPI + Vanilla JS + SQLite. No unnecessary frameworks. |
+| Technical Learning Risk | Simple stack: FastAPI + Vanilla JS + plain SQL. No unnecessary frameworks. |
 | Input / Numerical Risk | Hard validation + soft warnings + boundary checking. |
-| Integration Risk | Simulation, API, and Database are independently testable modules. |
+| Integration Risk | Simulation, API, and Database are independently testable modules; CI runs the database tests on PostgreSQL and the user flows in a browser. |
+| Data Loss Risk | Production data lives in PostgreSQL, not on the host's disk; schema changes are numbered migrations applied in a single transaction. |
 
 ---
 
-## Future Roadmap
+## Roadmap
 
-- **P1:** Multiple scaling models (e.g. strength-regime model)
-- **P2:** Reference data validation with known craters
-- **P2:** CSV / report export
-- **P3:** 3D terrain visualisation
-- **P3:** PostgreSQL for multi-user deployment
+Done since the first version: validation against observed impacts, a porous-regolith
+scaling model, 3D terrain, PostgreSQL for multi-user deployment.
+
+Next:
+
+- Background jobs for the heavy analyses (inference, Monte Carlo), with progress and cancellation
+- Batch experiments (parameter sweeps) with reproducible, versioned results
+- Regolith scaling as an option for ordinary simulations (the model has it; the API does not expose it yet)
+- CSV / report export
 
 ---
 
@@ -289,9 +354,11 @@ hydrocode-level oblique-impact physics.
 |-------|-----------|
 | Backend | Python 3, FastAPI |
 | Frontend | HTML, CSS, Vanilla JavaScript |
+| 3D | Three.js |
 | Visualisation | Plotly.js |
-| Database | SQLite |
-| Testing | pytest |
+| Database | SQLite (local), PostgreSQL (production) |
+| Testing | pytest, Playwright, mutmut |
+| CI | GitHub Actions |
 
 ---
 
