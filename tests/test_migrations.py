@@ -9,7 +9,7 @@ from database import migrations
 from database.migrations import MIGRATIONS, Migration, applied_versions, migrate, table_columns
 from database.models import get_connection, init_db, save_experiment, get_experiment
 
-ALL_TABLES = "challenge_records, user_sessions, users, experiments, schema_migrations"
+ALL_TABLES = "jobs, challenge_records, user_sessions, users, experiments, schema_migrations"
 
 # The schema of the very first release: no location, owner or session expiry
 LEGACY_SQL = """
@@ -199,7 +199,10 @@ def test_current_database_without_a_record_keeps_everything(db):
             "INSERT INTO user_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
             ("live-token", user_id, "2025-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00"),
         )
+        # Back to the state before migrations were recorded: no record, and
+        # nothing that later migrations added
         conn.execute("DROP TABLE schema_migrations")
+        conn.execute("DROP TABLE jobs")
     db.run(seed_and_forget)
 
     init_db(db.path)

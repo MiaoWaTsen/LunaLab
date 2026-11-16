@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.deps import require_user
 from backend.schemas import InferenceRequest
+from backend.services import INFERENCE_POSTERIOR_SAMPLES
 from simulation.case_studies import CASE_STUDIES, analyze, get_case_study
 from simulation.inference import PRESETS as INFERENCE_PRESETS, Observation, infer
 from simulation.surface_dating import (
@@ -68,7 +69,7 @@ def run_inference(req: InferenceRequest, user: dict = Depends(require_user)):
         luminous_energy=req.luminous_energy,
         velocity=req.velocity,
     )
-    return infer(obs, posterior_samples=1000)
+    return infer(obs, posterior_samples=INFERENCE_POSTERIOR_SAMPLES)
 
 
 # ---------------------------------------------------------------------------

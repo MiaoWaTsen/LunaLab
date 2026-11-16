@@ -6,6 +6,7 @@ The routes live in backend/routers/, one module per area:
     auth         accounts and sessions
     challenges   gamified missions
     experiments  simulations and saved experiments
+    jobs         long-running work, run in the background
     moon         elevation, illumination, relief texture
     science      case studies, impactor inference, surface dating
     pages        the frontend's HTML pages
@@ -16,6 +17,7 @@ authentication dependencies in backend/deps.py.  None of them contain
 simulation math or direct SQL.
 """
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,18 +25,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import auth, challenges, experiments, moon, pages, science
+from backend.job_types import JOB_TYPES
+from backend.jobs import Worker
+from backend.routers import auth, challenges, experiments, jobs, moon, pages, science
 from database.models import init_db
 
 
 # ---------------------------------------------------------------------------
-# Lifespan — initialise database on startup
+# Lifespan — migrate the database, run the job worker
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     init_db()
+    # The worker shares this process (see backend/jobs.py).  LUNALAB_JOB_WORKER=0
+    # turns it off: jobs are then queued but run only by another process.
+    worker = None
+    if os.environ.get("LUNALAB_JOB_WORKER", "1") != "0":
+        worker = Worker(JOB_TYPES)
+        worker.start()
+    application.state.job_worker = worker
     yield
+    if worker is not None:
+        worker.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +81,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(challenges.router)
 app.include_router(experiments.router)
+app.include_router(jobs.router)
 app.include_router(moon.router)
 app.include_router(science.router)
 

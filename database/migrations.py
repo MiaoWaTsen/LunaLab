@@ -159,11 +159,43 @@ def _baseline(conn, postgres: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 2 — background jobs (database/jobs.py)
+# ---------------------------------------------------------------------------
+
+_JOBS_SQL = """
+CREATE TABLE jobs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL,
+    type                TEXT    NOT NULL,
+    params_json         TEXT    NOT NULL,
+    status              TEXT    NOT NULL,
+    progress            REAL    NOT NULL DEFAULT 0,
+    result_json         TEXT,
+    error               TEXT,
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    cancel_requested    INTEGER NOT NULL DEFAULT 0,
+    worker_id           TEXT,
+    created_at          TEXT    NOT NULL,
+    started_at          TEXT,
+    heartbeat_at        TEXT,
+    finished_at         TEXT
+);
+CREATE INDEX jobs_status_idx ON jobs (status, id);
+CREATE INDEX jobs_user_idx ON jobs (user_id, id);
+"""
+
+
+def _jobs(conn, postgres: bool) -> None:
+    run_script(conn, _JOBS_SQL, postgres)
+
+
+# ---------------------------------------------------------------------------
 # The list.  Append only.
 # ---------------------------------------------------------------------------
 
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", _baseline),
+    Migration(2, "background jobs", _jobs),
 ]
 
 

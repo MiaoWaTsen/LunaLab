@@ -28,6 +28,10 @@ from simulation.crater_model import (
 )
 from terrain.lunar_surface import get_surface_provider
 
+# Posterior draws per inference.  The reported percentiles are computed from
+# these draws, so every caller must use the same number to get the same answer.
+INFERENCE_POSTERIOR_SAMPLES = 1000
+
 # Research XP for plain simulations: +15 each, for the first 10 per UTC day.
 SIMULATION_XP = 15
 DAILY_SIMULATION_XP_LIMIT = 10

@@ -49,8 +49,10 @@ LunaLab/
 │   ├── __init__.py
 │   ├── api.py               # App: middleware, routers, static files
 │   ├── routers/             # Routes, one module per area (auth, challenges,
-│   │                        #   experiments, moon, science, pages)
+│   │                        #   experiments, jobs, moon, science, pages)
 │   ├── services.py          # Use cases shared between routers
+│   ├── jobs.py              # Background job runner and worker thread
+│   ├── job_types.py         # The kinds of background job
 │   ├── deps.py              # Authentication dependencies
 │   └── schemas.py           # Pydantic request/response models
 │
@@ -73,7 +75,8 @@ LunaLab/
 ├── database/                # Data persistence layer
 │   ├── __init__.py
 │   ├── models.py            # Connections & CRUD (SQLite or PostgreSQL)
-│   └── migrations.py        # Numbered schema migrations
+│   ├── migrations.py        # Numbered schema migrations
+│   └── jobs.py              # Durable job queue
 │
 ├── frontend/                # Static frontend files
 │   ├── moon.html, moon.js   # 3D Moon (home page)
@@ -185,9 +188,31 @@ Interactive documentation for every endpoint is served at `/docs`.
 | Case studies | `GET /api/case-studies`, `/{id}` | — |
 | Inference | `GET /api/inference/presets` · `POST /api/inference` | required to run |
 | Surface age | `GET /api/surface-age/synthetic`, `/change6`, `/sites`, `/sites/{id}` | required for `synthetic` |
+| Background jobs | `GET /api/jobs/types` · `POST /api/jobs` · `GET /api/jobs`, `/{id}` · `POST /api/jobs/{id}/cancel` | required, except the types |
 
 Register or log in to get a token, then send it as `Authorization: Bearer <token>`.
 Sessions expire after 30 idle minutes. You only see your own experiments.
+
+### Background jobs
+
+Work too long for one request runs as a job: `POST /api/jobs` returns `202` with the job,
+and the client polls `GET /api/jobs/{id}` for `status` (`queued`, `running`, `succeeded`,
+`failed`, `cancelled`), `progress` (0–1) and, at the end, `result` or `error`.
+
+```json
+{ "type": "inference_batch", "params": { "crater_diameters": [18.8, 43.0, 2000] } }
+```
+
+`inference_batch` infers the impactor behind each of up to 500 craters, giving each the same
+answer as `POST /api/inference`. A user may have 3 jobs queued or running; finished jobs are
+kept for 7 days.
+
+The queue is a database table and the worker a thread in the web process, because the free
+hosting tier has no separate worker service and may restart or suspend the process at any
+time. Jobs therefore survive it: on a clean shutdown the running job returns to the queue, and
+one whose worker dies without a word is retried when its heartbeat has been silent for two
+minutes (up to 3 starts). Jobs run one at a time, and only while the service is awake.
+`LUNALAB_JOB_WORKER=0` disables the worker. See `database/jobs.py` and `backend/jobs.py`.
 
 The simulation endpoints in detail:
 
@@ -341,7 +366,7 @@ scaling model, 3D terrain, PostgreSQL for multi-user deployment.
 
 Next:
 
-- Background jobs for the heavy analyses (inference, Monte Carlo), with progress and cancellation
+- A page for background jobs (the API exists: batch inference with progress and cancellation)
 - Batch experiments (parameter sweeps) with reproducible, versioned results
 - Regolith scaling as an option for ordinary simulations (the model has it; the API does not expose it yet)
 - CSV / report export
