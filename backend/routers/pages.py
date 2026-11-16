@@ -57,6 +57,11 @@ def serve_inference():
     return _page("inference.html")
 
 
+@router.get("/batch")
+def serve_batch():
+    return _page("batch.html")
+
+
 @router.get("/surface-age")
 def serve_surface_age():
     return _page("surface-age.html")

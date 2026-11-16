@@ -19,7 +19,8 @@ LunaLab is a modular, web-based platform for simulating lunar impact craters usi
 7. **Impactor Inference** — Bayesian inversion from an observed crater back to the impactor: posterior over size, velocity, angle and density, the size–speed degeneracy, and (for impact flashes) the luminous efficiency; validated by simulation-based calibration
 8. **Surface Age** — Date a surface by counting its craters (Neukum 2001 production and chronology functions, Poisson likelihood): watch a synthetic plain collect craters over 4 billion years, see small craters saturate, then test the method on the Chang'e-6 landing site against its 2.807 Ga sample age, and on seven sampled landing sites counted in circles vs on their mapped geological units
 9. **3D Moon** — Pick the impact site on a globe built from LRO imagery and LOLA elevation, lit by the real Sun for the current date
-10. **Accounts & Missions** — Sign in to keep your own experiments, and earn research XP on challenge missions graded against known craters
+10. **Batch Inference** — Infer the impactor behind every crater in a list, or around a landing site, as a background job with progress, cancellation and CSV download
+11. **Accounts & Missions** — Sign in to keep your own experiments, and earn research XP on challenge missions graded against known craters
 
 ---
 
@@ -86,6 +87,7 @@ LunaLab/
 │   ├── challenge.html       # Challenge missions
 │   ├── case-study.html      # The 2013-03-17 impact
 │   ├── inference.html       # Impactor inference
+│   ├── batch.html           # Batch inference as a background job
 │   ├── surface-age.html     # Crater-count dating
 │   ├── login.html           # Sign in / register
 │   ├── index.html           # Earlier dashboard (reachable only at /static/index.html)
@@ -362,14 +364,13 @@ hydrocode-level oblique-impact physics.
 ## Roadmap
 
 Done since the first version: validation against observed impacts, a porous-regolith
-scaling model, 3D terrain, PostgreSQL for multi-user deployment.
+scaling model, 3D terrain, PostgreSQL for multi-user deployment, background jobs.
 
 Next:
 
-- A page for background jobs (the API exists: batch inference with progress and cancellation)
 - Batch experiments (parameter sweeps) with reproducible, versioned results
 - Regolith scaling as an option for ordinary simulations (the model has it; the API does not expose it yet)
-- CSV / report export
+- CSV export beyond batch results (experiments, history)
 
 ---
 

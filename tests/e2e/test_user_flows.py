@@ -36,7 +36,9 @@ def _free_port() -> int:
 def server(tmp_path_factory):
     port = _free_port()
     db = tmp_path_factory.mktemp("e2e") / "e2e.db"
-    env = dict(os.environ, LUNALAB_DB_PATH=str(db))
+    # The unit tests run jobs by hand (conftest turns the worker off); here the
+    # real worker thread runs them, as in production
+    env = dict(os.environ, LUNALAB_DB_PATH=str(db), LUNALAB_JOB_WORKER="1")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.api:app", "--port", str(port)],
         cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -317,3 +319,58 @@ def test_inference_shows_the_last_preset_clicked(page, server):
     page.wait_for_timeout(300)
     note = page.inner_text("#headline-note")
     assert note.startswith("2,200 m") and "flash" not in note
+
+
+def test_batch_job_runs_in_the_background_and_shows_its_result(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+
+    page.fill("#in-diameters", "18.8\n43, 2000")
+    assert page.inner_text("#diameter-hint").startswith("3 craters")
+    page.click("#btn-submit")
+
+    # The worker thread picks the job up; the page polls until it is done
+    page.wait_for_selector("#jobs-body tr [data-status]:text-is('succeeded')")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert page.locator("#result-body tr").count() == 3
+    assert page.inner_text("#result-body tr:nth-child(3) td:nth-child(2)") == "Rock"
+    assert page.locator("#jobs-body button[data-action='cancel']").count() == 0
+
+    # The job belongs to the account, not the page: it is still there after a reload
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert page.locator("#jobs-body tr").count() == 1
+
+
+def test_batch_rejects_a_bad_list_before_submitting(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+
+    page.fill("#in-diameters", "18.8\nbig")
+    assert "not a positive number" in page.inner_text("#diameter-hint")
+    page.click("#btn-submit")
+    page.wait_for_selector(".toast")
+    assert page.locator("#jobs-body tr").count() == 0
+
+
+def test_batch_loads_craters_around_a_landing_site(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#in-site option", state="attached")   # options are never "visible"
+
+    page.select_option("#in-site", "change5")
+    page.select_option("#in-radius", "25")
+    page.click("#btn-load-site")
+    page.wait_for_function("document.getElementById('in-diameters').value.length > 0")
+    # Catalogue diameters are in km; the job takes metres
+    first = float(page.input_value("#in-diameters").split()[0])
+    assert first >= 1000
+    assert "crater" in page.inner_text("#diameter-hint")

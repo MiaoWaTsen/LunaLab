@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LunaLab — Infer the impactors behind many lunar craters at once, as a background job.">
+    <title>LunaLab — Batch Inference</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+    <style>
+        .batch-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: var(--space-md);
+            align-items: end;
+        }
+        .batch-form label, .field-label {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: var(--space-xs);
+        }
+        #in-diameters {
+            width: 100%;
+            min-height: 140px;
+            resize: vertical;
+            font-family: var(--font-mono);
+        }
+        .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: var(--space-xs); }
+        .hint--error { color: var(--accent-rose); }
+        .explain { color: var(--text-secondary); line-height: 1.7; }
+        .status { font-family: var(--font-mono); font-size: 0.8rem; }
+        .status--queued    { color: var(--text-muted); }
+        .status--running   { color: var(--accent-cyan); }
+        .status--succeeded { color: var(--accent-emerald); }
+        .status--failed    { color: var(--accent-rose); }
+        .status--cancelled { color: var(--accent-amber); }
+        .progress {
+            width: 140px;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg-input);
+            overflow: hidden;
+        }
+        .progress__bar {
+            height: 100%;
+            background: var(--accent-cyan);
+            transition: width 0.4s ease;
+        }
+        .job-row--selected td { background: var(--accent-indigo-glow); }
+        .table-scroll { overflow-x: auto; }
+        .btn--sm { padding: 4px 10px; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container navbar__inner">
+            <a href="/" class="navbar__brand">
+                <span class="navbar__brand-icon" aria-hidden="true"></span>
+                LunaLab
+            </a>
+            <ul class="navbar__links">
+                <li><a href="/" class="navbar__link">3D Moon</a></li>
+                <li><a href="/experiment" class="navbar__link">Experiment</a></li>
+                <li><a href="/challenge" class="navbar__link">Challenges</a></li>
+                <li><a href="/case-study" class="navbar__link">Case Study</a></li>
+                <li><a href="/inference" class="navbar__link">Inference</a></li>
+                <li><a href="/batch" class="navbar__link navbar__link--active">Batch</a></li>
+                <li><a href="/surface-age" class="navbar__link">Surface Age</a></li>
+                <li><a href="/history" class="navbar__link">History</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <div class="page-header">
+            <h1 class="page-header__title">Batch Inference</h1>
+            <p class="page-header__subtitle">
+                Infer the impactor behind every crater in a list. A long list takes minutes, so it runs
+                as a background job: you can leave this page and come back for the result.
+            </p>
+        </div>
+
+        <!-- New job -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">📋</span> Craters</h2>
+
+                <label class="field-label" for="in-diameters">Crater diameters in metres, one per line (or separated by commas)</label>
+                <textarea class="form-input" id="in-diameters" spellcheck="false" placeholder="18.8&#10;43&#10;2000"></textarea>
+                <div class="hint" id="diameter-hint"></div>
+
+                <form class="batch-form mt-lg" id="site-form">
+                    <div>
+                        <label for="in-site">…or load the catalogued craters around a landing site</label>
+                        <select class="form-input" id="in-site"></select>
+                    </div>
+                    <div>
+                        <label for="in-radius">Within (km)</label>
+                        <select class="form-input" id="in-radius">
+                            <option>25</option><option selected>50</option><option>75</option><option>100</option><option>150</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn--secondary" id="btn-load-site" style="width:100%;">Load craters</button>
+                    </div>
+                </form>
+
+                <form class="batch-form mt-lg" id="job-form">
+                    <div>
+                        <label for="in-error">Measurement error (%)</label>
+                        <input class="form-input" id="in-error" type="number" min="1" max="100" step="any" value="5" required>
+                    </div>
+                    <div>
+                        <label for="in-material">Target scaling</label>
+                        <select class="form-input" id="in-material">
+                            <option value="">Automatic</option>
+                            <option value="regolith">Porous regolith</option>
+                            <option value="rock">Competent rock</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn--primary" id="btn-submit" style="width:100%;">Run in the background</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Jobs -->
+        <section class="section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">⏳</span> Your jobs</h2>
+                <div id="jobs-empty" class="empty-state hidden">
+                    <div class="empty-state__icon">🛰️</div>
+                    <div class="empty-state__title">No jobs yet</div>
+                </div>
+                <div class="table-scroll">
+                    <table class="data-table hidden" id="jobs-table">
+                        <thead>
+                            <tr>
+                                <th>Job</th>
+                                <th>Submitted</th>
+                                <th>Craters</th>
+                                <th>Status</th>
+                                <th>Progress</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-body"></tbody>
+                    </table>
+                </div>
+                <p class="hint">Jobs run one at a time. Finished jobs are kept for 7 days.</p>
+            </div>
+        </section>
+
+        <!-- Result -->
+        <section class="section hidden" id="result-section">
+            <div class="card">
+                <h2 class="card__title"><span class="card__title-icon">☄️</span> <span id="result-title">Result</span></h2>
+                <div id="result-message" class="explain hidden"></div>
+                <div id="result-content" class="hidden">
+                    <p class="explain">
+                        Each point is one crater: the median impactor that explains it, with the 90% credible
+                        interval. The interval is wide because a crater fixes the impact energy far better
+                        than the impactor's size or speed separately.
+                    </p>
+                    <div class="chart-container" id="chart-batch"></div>
+                    <div class="mt-md">
+                        <button type="button" class="btn btn--secondary" id="btn-csv">Download CSV</button>
+                    </div>
+                    <div class="table-scroll mt-md">
+                        <table class="data-table" id="result-table">
+                            <thead>
+                                <tr>
+                                    <th>Crater ⌀</th>
+                                    <th>Scaling</th>
+                                    <th>Impactor ⌀ (median)</th>
+                                    <th>90% interval</th>
+                                    <th>Velocity</th>
+                                    <th>Mass</th>
+                                    <th>Kinetic energy</th>
+                                </tr>
+                            </thead>
+                            <tbody id="result-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            LunaLab v0.2.0 — Collins-Pike Lunar Crater Scaling Model · Educational prototype
+        </div>
+    </footer>
+</div>
+
+<script src="/static/app.js?v=5"></script>
+<script>
+const MAX_CRATERS = 500;
+const POLL_MS = 1500;
+const ACTIVE = ['queued', 'running'];
+
+let jobs = [];
+let selectedId = null;      // the job whose result is shown
+let shownResultFor = null;  // "id:status" of what the result section currently shows
+let pollTimer = null;
+let currentResult = null;
+
+init();
+
+async function init() {
+    document.getElementById('in-diameters').addEventListener('input', updateDiameterHint);
+    document.getElementById('job-form').addEventListener('submit', e => { e.preventDefault(); submitJob(); });
+    document.getElementById('site-form').addEventListener('submit', e => { e.preventDefault(); loadSite(); });
+    document.getElementById('btn-csv').addEventListener('click', downloadCsv);
+    document.getElementById('jobs-body').addEventListener('click', onJobAction);
+    updateDiameterHint();
+    loadSites();
+    await refreshJobs();
+    // Returning to the page: show the most recent job
+    if (selectedId === null && jobs.length) select(jobs[0].id);
+}
+
+// ---------------------------------------------------------------------------
+// The list of craters
+// ---------------------------------------------------------------------------
+
+// Returns { values: [...] } or { error: '...' }
+function parseDiameters() {
+    const tokens = document.getElementById('in-diameters').value.split(/[\s,;]+/).filter(Boolean);
+    const values = [];
+    for (const token of tokens) {
+        const value = Number(token);
+        if (!Number.isFinite(value) || value <= 0) return { error: `"${token}" is not a positive number.` };
+        if (value > 3e6) return { error: `${token} m is larger than the Moon allows (3,000 km).` };
+        values.push(value);
+    }
+    if (values.length > MAX_CRATERS) return { error: `${values.length} craters: the limit is ${MAX_CRATERS} per job.` };
+    return { values };
+}
+
+function updateDiameterHint() {
+    const hint = document.getElementById('diameter-hint');
+    const parsed = parseDiameters();
+    hint.classList.toggle('hint--error', Boolean(parsed.error));
+    hint.textContent = parsed.error
+        || (parsed.values.length ? `${parsed.values.length} crater${parsed.values.length === 1 ? '' : 's'} (limit ${MAX_CRATERS})` : `Up to ${MAX_CRATERS} craters.`);
+}
+
+async function loadSites() {
+    try {
+        const { sites } = await apiGet('/api/surface-age/sites');
+        document.getElementById('in-site').innerHTML = sites.map(s =>
+            `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+    } catch (e) {
+        showToast(`Could not load landing sites: ${e.message}`, 'error');
+    }
+}
+
+async function loadSite() {
+    const site = document.getElementById('in-site').value;
+    const radius = document.getElementById('in-radius').value;
+    if (!site) return;
+    const button = document.getElementById('btn-load-site');
+    button.disabled = true;
+    try {
+        const data = await apiGet(`/api/surface-age/sites/${encodeURIComponent(site)}?radius_km=${radius}`);
+        // The catalogue lists diameters in km.  Largest first, so that the limit
+        // drops the smallest craters
+        let diameters = data.craters.diameter.map(km => km * 1000).sort((a, b) => b - a);
+        const found = diameters.length;
+        diameters = diameters.slice(0, MAX_CRATERS);
+        document.getElementById('in-diameters').value = diameters.map(d => Math.round(d)).join('\n');
+        updateDiameterHint();
+        showToast(found > MAX_CRATERS
+            ? `${data.name}: ${found} craters within ${radius} km; kept the ${MAX_CRATERS} largest.`
+            : `${data.name}: ${found} craters within ${radius} km.`);
+    } catch (e) {
+        showToast(`Could not load craters: ${e.message}`, 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Jobs: submit, follow, cancel
+// ---------------------------------------------------------------------------
+
+async function submitJob() {
+    const parsed = parseDiameters();
+    if (parsed.error || !parsed.values.length) {
+        showToast(parsed.error || 'Enter at least one crater diameter.', 'error');
+        return;
+    }
+    const button = document.getElementById('btn-submit');
+    button.disabled = true;
+    try {
+        const job = await apiPost('/api/jobs', {
+            type: 'inference_batch',
+            params: {
+                crater_diameters: parsed.values,
+                diameter_error: Number(document.getElementById('in-error').value) / 100,
+                material: document.getElementById('in-material').value || null,
+            },
+        });
+        showToast(`Job ${job.id} queued: ${parsed.values.length} craters.`);
+        selectedId = job.id;
+        shownResultFor = null;
+        await refreshJobs();
+    } catch (e) {
+        showToast(`Could not start the job: ${e.message}`, 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function refreshJobs() {
+    clearTimeout(pollTimer);
+    try {
+        jobs = (await apiGet('/api/jobs')).jobs.filter(j => j.type === 'inference_batch');
+    } catch (e) {
+        // A dropped connection: keep what is on screen and try again
+        pollTimer = setTimeout(refreshJobs, POLL_MS * 4);
+        return;
+    }
+    renderJobs();
+    await showSelected();
+    if (jobs.some(j => ACTIVE.includes(j.status))) {
+        pollTimer = setTimeout(refreshJobs, POLL_MS);
+    }
+}
+
+function renderJobs() {
+    document.getElementById('jobs-empty').classList.toggle('hidden', jobs.length > 0);
+    document.getElementById('jobs-table').classList.toggle('hidden', jobs.length === 0);
+    document.getElementById('jobs-body').innerHTML = jobs.map(job => {
+        const active = ACTIVE.includes(job.status);
+        const percent = Math.round(job.progress * 100);
+        const status = job.cancel_requested && job.status === 'running' ? 'cancelling' : job.status;
+        return `
+            <tr class="${job.id === selectedId ? 'job-row--selected' : ''}" data-job="${job.id}">
+                <td class="data-table__mono">#${job.id}</td>
+                <td>${formatDate(job.created_at)}</td>
+                <td class="data-table__mono">${job.params.crater_diameters.length}</td>
+                <td><span class="status status--${job.status}" data-status>${status}</span></td>
+                <td>
+                    <div class="progress" title="${percent}%"><div class="progress__bar" style="width:${percent}%"></div></div>
+                </td>
+                <td>
+                    <button type="button" class="btn btn--ghost btn--sm" data-action="view" data-id="${job.id}">View</button>
+                    ${active ? `<button type="button" class="btn btn--danger btn--sm" data-action="cancel" data-id="${job.id}">Cancel</button>` : ''}
+                </td>
+            </tr>`;
+    }).join('');
+}
+
+async function onJobAction(event) {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const id = Number(button.dataset.id);
+    if (button.dataset.action === 'view') {
+        select(id);
+    } else {
+        button.disabled = true;
+        try {
+            await apiPost(`/api/jobs/${id}/cancel`);
+        } catch (e) {
+            showToast(`Could not cancel: ${e.message}`, 'error');
+        }
+        await refreshJobs();
+    }
+}
+
+function select(id) {
+    selectedId = id;
+    renderJobs();
+    showSelected();
+}
+
+// ---------------------------------------------------------------------------
+// The selected job's result
+// ---------------------------------------------------------------------------
+
+async function showSelected() {
+    const job = jobs.find(j => j.id === selectedId);
+    if (!job) return;
+    // Only redraw when the job has moved on: this runs on every poll
+    const key = `${job.id}:${job.status}`;
+    if (key === shownResultFor) return;
+    shownResultFor = key;
+
+    document.getElementById('result-section').classList.remove('hidden');
+    document.getElementById('result-title').textContent = `Job #${job.id}`;
+    const message = document.getElementById('result-message');
+    const content = document.getElementById('result-content');
+
+    if (job.status !== 'succeeded') {
+        content.classList.add('hidden');
+        message.classList.remove('hidden');
+        message.textContent = {
+            queued: 'Waiting for the worker. Jobs run one at a time.',
+            running: 'Running… the result appears here when it is done.',
+            cancelled: 'This job was cancelled before it finished.',
+            failed: `This job failed: ${job.error || 'unknown error'}`,
+        }[job.status];
+        return;
+    }
+
+    let full;
+    try {
+        full = await apiGet(`/api/jobs/${job.id}`);
+    } catch (e) {
+        shownResultFor = null;
+        message.classList.remove('hidden');
+        message.textContent = `Could not load the result: ${e.message}`;
+        return;
+    }
+    if (selectedId !== job.id) return;   // another job was selected meanwhile
+    currentResult = { id: job.id, craters: full.result.craters };
+    message.classList.add('hidden');
+    content.classList.remove('hidden');
+    renderResult(currentResult.craters);
+}
+
+function interval(summary, format) {
+    return `${format(summary.p5)} – ${format(summary.p95)}`;
+}
+
+function renderResult(craters) {
+    const km = v => `${formatNumber(v / 1000, 1)} km/s`;
+    const kg = v => `${formatNumber(v, 1)} kg`;
+    document.getElementById('result-body').innerHTML = craters.map(c => `
+        <tr>
+            <td class="data-table__mono">${formatLength(c.crater_diameter)}</td>
+            <td>${c.material === 'regolith' ? 'Regolith' : 'Rock'}</td>
+            <td class="data-table__mono">${formatLength(c.posterior.impactor_diameter.p50)}</td>
+            <td class="data-table__mono">${interval(c.posterior.impactor_diameter, formatLength)}</td>
+            <td class="data-table__mono">${km(c.posterior.velocity.p50)}</td>
+            <td class="data-table__mono">${kg(c.posterior.mass.p50)}</td>
+            <td class="data-table__mono">${formatEnergy(c.posterior.kinetic_energy.p50)}</td>
+        </tr>`).join('');
+
+    const byMaterial = material => craters.filter(c => c.material === material);
+    const trace = (material, name, color) => {
+        const rows = byMaterial(material);
+        const median = rows.map(c => c.posterior.impactor_diameter.p50);
+        return {
+            x: rows.map(c => c.crater_diameter),
+            y: median,
+            error_y: {
+                type: 'data', symmetric: false, width: 0, thickness: 1, color,
+                array: rows.map((c, i) => c.posterior.impactor_diameter.p95 - median[i]),
+                arrayminus: rows.map((c, i) => median[i] - c.posterior.impactor_diameter.p5),
+            },
+            mode: 'markers', type: 'scatter', name,
+            marker: { color, size: 6 },
+            hovertemplate: 'crater %{x:.3g} m<br>impactor %{y:.3g} m<extra></extra>',
+        };
+    };
+    Plotly.newPlot('chart-batch', [
+        trace('regolith', 'Porous regolith', '#67d4e8'),
+        trace('rock', 'Competent rock', '#f2c66d'),
+    ].filter(t => t.x.length), {
+        ...PLOTLY_LAYOUT_DEFAULTS,
+        xaxis: { ...PLOTLY_LAYOUT_DEFAULTS.xaxis, title: 'Crater diameter (m)', type: 'log' },
+        yaxis: { ...PLOTLY_LAYOUT_DEFAULTS.yaxis, title: 'Impactor diameter (m)', type: 'log' },
+        legend: { orientation: 'h', y: -0.25 },
+    }, PLOTLY_CONFIG);
+}
+
+function downloadCsv() {
+    if (!currentResult) return;
+    const names = ['impactor_diameter', 'velocity', 'mass', 'kinetic_energy'];
+    const units = { impactor_diameter: 'm', velocity: 'm_per_s', mass: 'kg', kinetic_energy: 'J' };
+    const header = ['crater_diameter_m', 'scaling', 'effective_sample_size',
+        ...names.flatMap(n => ['p5', 'p50', 'p95'].map(p => `${n}_${units[n]}_${p}`))];
+    const rows = currentResult.craters.map(c => [
+        c.crater_diameter, c.material, c.effective_sample_size,
+        ...names.flatMap(n => [c.posterior[n].p5, c.posterior[n].p50, c.posterior[n].p95]),
+    ]);
+    const csv = [header, ...rows].map(row => row.join(',')).join('\n') + '\n';
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    link.download = `lunalab-batch-${currentResult.id}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+</script>
+</body>
+</html>
