@@ -41,6 +41,24 @@ function setStoredUser(user) {
 }
 
 // ---------------------------------------------------------------------------
+// Page transitions
+// ---------------------------------------------------------------------------
+
+// styles.css opts into cross-document view transitions.  The browser skips
+// one whenever it cannot run it (a typed URL, a reload, a slow page) and
+// then rejects the transition's promises; nothing is wrong, so say nothing.
+// Unhandled, each skipped transition would surface as a page error.
+function ignoreSkippedTransition(event) {
+    const transition = event.viewTransition;
+    if (!transition) return;
+    for (const promise of [transition.ready, transition.finished, transition.updateCallbackDone]) {
+        promise?.catch(() => {});
+    }
+}
+window.addEventListener('pageswap', ignoreSkippedTransition);
+window.addEventListener('pagereveal', ignoreSkippedTransition);
+
+// ---------------------------------------------------------------------------
 // Login guard — every page except /login requires a session
 // ---------------------------------------------------------------------------
 
