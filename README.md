@@ -45,7 +45,11 @@ LunaLab/
 │
 ├── backend/                 # API layer
 │   ├── __init__.py
-│   ├── api.py               # FastAPI routes & app factory
+│   ├── api.py               # App: middleware, routers, static files
+│   ├── routers/             # Routes, one module per area (auth, challenges,
+│   │                        #   experiments, moon, science, pages)
+│   ├── services.py          # Use cases shared between routers
+│   ├── deps.py              # Authentication dependencies
 │   └── schemas.py           # Pydantic request/response models
 │
 ├── simulation/              # Simulation engine (independent)
