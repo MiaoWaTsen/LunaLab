@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Gamified Lunar Impact Missions. Challenge real-world crater replication, achieve scientific grades, and earn research commander ranks.">
     <title>LunaLab — Mission Challenges</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
@@ -171,20 +171,22 @@
             <div class="card" style="padding: var(--space-md) var(--space-xl);">
                 <h3 style="font-size: 1.05rem; margin-bottom: var(--space-md); color: #e2e8f0;">📜 Mission Records — All Commanders</h3>
                 <div id="records-empty" class="text-center" style="color: var(--text-muted);">Loading records…</div>
-                <table class="data-table hidden" id="records-table">
-                    <thead>
-                        <tr>
-                            <th>Commander</th>
-                            <th>Mission</th>
-                            <th>Grade</th>
-                            <th>Score</th>
-                            <th>⌀ Error</th>
-                            <th>Depth Error</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="records-body"></tbody>
-                </table>
+                <div class="table-scroll">
+                    <table class="data-table hidden" id="records-table">
+                        <thead>
+                            <tr>
+                                <th>Commander</th>
+                                <th>Mission</th>
+                                <th>Grade</th>
+                                <th>Score</th>
+                                <th>⌀ Error</th>
+                                <th>Depth Error</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="records-body"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
     </main>
@@ -196,7 +198,7 @@
     </footer>
 </div>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 <script>
 let challenges = [];
 let currentChallenge = null;
@@ -261,11 +263,12 @@ function renderChallengeCards() {
     });
 
     if (challenges.length > 0) {
-        selectChallenge(challenges[0].id);
+        // Preselected for convenience: do not scroll the mission list away
+        selectChallenge(challenges[0].id, false);
     }
 }
 
-function selectChallenge(chId) {
+function selectChallenge(chId, scroll = true) {
     currentChallenge = challenges.find(c => c.id === chId);
     if (!currentChallenge) return;
 
@@ -299,7 +302,9 @@ function selectChallenge(chId) {
         document.getElementById('c-angle').value = 45;
     }
 
-    document.getElementById('section-workbench').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scroll) {
+        document.getElementById('section-workbench').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 // ---------------------------------------------------------------------------

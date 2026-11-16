@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LunaLab — Select Impact Location</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
     <script type="importmap">
     {
       "imports": {
@@ -53,10 +53,13 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: var(--space-md);
         }
         .coordinates-data {
             display: flex;
-            gap: var(--space-lg);
+            flex-wrap: wrap;
+            gap: var(--space-sm) var(--space-lg);
         }
         .coord-group {
             display: flex;
@@ -177,7 +180,7 @@
         </div>
     </footer>
 </div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 <script type="module" src="/static/moon.js?v=6"></script>
 </body>
 </html>

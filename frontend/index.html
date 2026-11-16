@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Lunar Impact Simulation & Experiment Analysis Platform. Run crater-scaling simulations, visualize results, and compare experiments.">
     <title>LunaLab — Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
 </head>
 <body>
 <div class="app-wrapper">
@@ -66,21 +66,23 @@
                 </div>
 
                 <div id="recent-table-wrapper" class="hidden">
-                    <table class="data-table" id="recent-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Date</th>
-                                <th>Impactor ⌀</th>
-                                <th>Velocity</th>
-                                <th>Angle</th>
-                                <th>Crater ⌀</th>
-                                <th>Depth</th>
-                                <th>Model</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recent-tbody"></tbody>
-                    </table>
+                    <div class="table-scroll">
+                        <table class="data-table" id="recent-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Date</th>
+                                    <th>Impactor ⌀</th>
+                                    <th>Velocity</th>
+                                    <th>Angle</th>
+                                    <th>Crater ⌀</th>
+                                    <th>Depth</th>
+                                    <th>Model</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-tbody"></tbody>
+                        </table>
+                    </div>
                     <div class="mt-lg text-center">
                         <a href="/history" class="btn btn--secondary" id="btn-view-all">View All Experiments →</a>
                     </div>
@@ -98,7 +100,7 @@
 
 </div>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 <script>
 (async function () {
     const loading = document.getElementById('recent-loading');

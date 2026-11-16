@@ -409,3 +409,38 @@ def test_batch_loads_craters_around_a_landing_site(page, server):
     first = float(page.input_value("#in-diameters").split()[0])
     assert first >= 1000
     assert "crater" in page.inner_text("#diameter-hint")
+
+
+def test_phone_menu_opens_navigates_and_fits_the_screen(browser, server):
+    base = server["base"]
+    ctx = browser.new_context(viewport={"width": 390, "height": 780})
+    ctx.route(EXTERNAL_CDN, _offline_cdn)
+    page = ctx.new_page()
+    try:
+        register(page, base)
+        wait_url(page, f"{base}/")
+        toggle = page.locator(".navbar__toggle")
+        toggle.wait_for()
+        assert toggle.inner_text().strip() == "3D Moon"          # names the current page
+        assert not page.locator(".navbar__links").is_visible()   # collapsed until asked for
+
+        toggle.click()
+        page.wait_for_selector(".navbar__toggle[aria-expanded='true']")
+        page.keyboard.press("Escape")
+        page.wait_for_selector(".navbar__toggle[aria-expanded='false']")
+
+        toggle.click()
+        page.click(".navbar__link:has-text('History')")
+        wait_url(page, f"{base}/history")
+        page.locator(".navbar__toggle").wait_for()
+        assert page.locator(".navbar__toggle").inner_text().strip() == "History"
+
+        # No page scrolls sideways on a phone
+        for path in ("/", "/experiment", "/challenge", "/batch", "/history", "/surface-age"):
+            goto(page, f"{base}{path}")
+            # Measure the settled page: tables and charts arrive after the HTML
+            page.wait_for_load_state("networkidle")
+            widths = page.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
+            assert widths[0] <= widths[1] + 1, f"{path} is {widths[0]}px wide on a {widths[1]}px screen"
+    finally:
+        ctx.close()

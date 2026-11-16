@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — Infer the impactors behind many lunar craters at once, as a background job.">
     <title>LunaLab — Batch Inference</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=4">
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
     <style>
         .batch-form {
@@ -220,7 +220,7 @@
     </footer>
 </div>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 <script>
 const MAX_CRATERS = 500;
 const POLL_MS = 1500;
@@ -344,7 +344,7 @@ async function submitJob() {
 async function refreshJobs() {
     clearTimeout(pollTimer);
     try {
-        jobs = (await apiGet('/api/jobs')).jobs.filter(j => j.type === 'inference_batch');
+        jobs = (await apiGet('/api/jobs', { quiet: jobs.length > 0 })).jobs.filter(j => j.type === 'inference_batch');
     } catch (e) {
         // A dropped connection: keep what is on screen and try again
         pollTimer = setTimeout(refreshJobs, POLL_MS * 4);
