@@ -1080,15 +1080,6 @@ body::before {
 /* Inputs draw their own focus ring */
 .form-input:focus-visible { outline: none; }
 
-/* --- Page transitions ------------------------------------------------ */
-/* Each page is its own document.  Where the browser supports it, moving
-   between them cross-fades the content while the navbar stays put, instead
-   of flashing blank.  Elsewhere this is ignored. */
-@view-transition { navigation: auto; }
-.navbar { view-transition-name: navbar; }
-::view-transition-old(root),
-::view-transition-new(root) { animation-duration: 160ms; }
-
 /* --- Activity bar ---------------------------------------------------- */
 /* Shown by app.js while a request has been in flight for a moment */
 .net-progress {
@@ -1215,9 +1206,6 @@ body::before {
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
-    ::view-transition-group(*),
-    ::view-transition-old(*),
-    ::view-transition-new(*) { animation: none !important; }
 }
 
 /* --- Language button (i18n.js) --------------------------------------- */
