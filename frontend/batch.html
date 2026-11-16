@@ -50,6 +50,16 @@
         .job-row--selected td { background: var(--accent-indigo-glow); }
         .table-scroll { overflow-x: auto; }
         .btn--sm { padding: 4px 10px; font-size: 0.8rem; }
+        .tag-outdated {
+            margin-left: var(--space-xs);
+            padding: 1px 6px;
+            border: 1px solid var(--accent-amber);
+            border-radius: var(--radius-md);
+            color: var(--accent-amber);
+            font-size: 0.7rem;
+        }
+        .provenance { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
+        .notice-outdated { color: var(--accent-amber); }
     </style>
 </head>
 <body>
@@ -124,6 +134,10 @@
                         </select>
                     </div>
                     <div>
+                        <label for="in-seed" title="The same seed gives exactly the same result">Random seed</label>
+                        <input class="form-input" id="in-seed" type="number" min="0" max="2147483647" step="1" value="0" required>
+                    </div>
+                    <div>
                         <button type="submit" class="btn btn--primary" id="btn-submit" style="width:100%;">Run in the background</button>
                     </div>
                 </form>
@@ -163,6 +177,10 @@
                 <h2 class="card__title"><span class="card__title-icon">☄️</span> <span id="result-title">Result</span></h2>
                 <div id="result-message" class="explain hidden"></div>
                 <div id="result-content" class="hidden">
+                    <p class="notice-outdated hidden" id="result-outdated">
+                        The model has changed since this job ran, so it would not give exactly these numbers
+                        today. Use “Run again” to recompute it with the current model.
+                    </p>
                     <p class="explain">
                         Each point is one crater: the median impactor that explains it, with the 90% credible
                         interval. The interval is wide because a crater fixes the impact energy far better
@@ -172,6 +190,7 @@
                     <div class="mt-md">
                         <button type="button" class="btn btn--secondary" id="btn-csv">Download CSV</button>
                     </div>
+                    <p class="provenance mt-md" id="result-provenance"></p>
                     <div class="table-scroll mt-md">
                         <table class="data-table" id="result-table">
                             <thead>
@@ -308,6 +327,7 @@ async function submitJob() {
                 crater_diameters: parsed.values,
                 diameter_error: Number(document.getElementById('in-error').value) / 100,
                 material: document.getElementById('in-material').value || null,
+                seed: Number(document.getElementById('in-seed').value),
             },
         });
         showToast(`Job ${job.id} queued: ${parsed.values.length} craters.`);
@@ -349,13 +369,18 @@ function renderJobs() {
                 <td class="data-table__mono">#${job.id}</td>
                 <td>${formatDate(job.created_at)}</td>
                 <td class="data-table__mono">${job.params.crater_diameters.length}</td>
-                <td><span class="status status--${job.status}" data-status>${status}</span></td>
+                <td>
+                    <span class="status status--${job.status}" data-status>${status}</span>
+                    ${job.outdated ? '<span class="tag-outdated" data-outdated title="The model has changed since this job ran">outdated</span>' : ''}
+                </td>
                 <td>
                     <div class="progress" title="${percent}%"><div class="progress__bar" style="width:${percent}%"></div></div>
                 </td>
                 <td>
                     <button type="button" class="btn btn--ghost btn--sm" data-action="view" data-id="${job.id}">View</button>
-                    ${active ? `<button type="button" class="btn btn--danger btn--sm" data-action="cancel" data-id="${job.id}">Cancel</button>` : ''}
+                    ${active
+                        ? `<button type="button" class="btn btn--danger btn--sm" data-action="cancel" data-id="${job.id}">Cancel</button>`
+                        : `<button type="button" class="btn btn--ghost btn--sm" data-action="rerun" data-id="${job.id}">Run again</button>`}
                 </td>
             </tr>`;
     }).join('');
@@ -367,6 +392,17 @@ async function onJobAction(event) {
     const id = Number(button.dataset.id);
     if (button.dataset.action === 'view') {
         select(id);
+    } else if (button.dataset.action === 'rerun') {
+        button.disabled = true;
+        try {
+            const job = await apiPost(`/api/jobs/${id}/rerun`);
+            showToast(`Job ${job.id} queued: job ${id} again, with the current model.`);
+            selectedId = job.id;
+            shownResultFor = null;
+        } catch (e) {
+            showToast(`Could not run it again: ${e.message}`, 'error');
+        }
+        await refreshJobs();
     } else {
         button.disabled = true;
         try {
@@ -392,7 +428,7 @@ async function showSelected() {
     const job = jobs.find(j => j.id === selectedId);
     if (!job) return;
     // Only redraw when the job has moved on: this runs on every poll
-    const key = `${job.id}:${job.status}`;
+    const key = `${job.id}:${job.status}:${job.outdated}`;
     if (key === shownResultFor) return;
     shownResultFor = key;
 
@@ -426,6 +462,11 @@ async function showSelected() {
     currentResult = { id: job.id, craters: full.result.craters };
     message.classList.add('hidden');
     content.classList.remove('hidden');
+    document.getElementById('result-outdated').classList.toggle('hidden', !full.outdated);
+    const p = full.provenance;
+    document.getElementById('result-provenance').textContent = p
+        ? `Model ${p.fingerprint} · numpy ${p.numpy} · seed ${full.params.seed}` + (p.commit ? ` · commit ${p.commit.slice(0, 7)}` : '')
+        : 'No record of the model version that produced this result.';
     renderResult(currentResult.craters);
 }
 

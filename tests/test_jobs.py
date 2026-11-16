@@ -605,7 +605,7 @@ def test_submit_then_poll_until_the_result_is_ready(client, ada, db):
     job = response.json()
     assert job["status"] == "queued" and job["result"] is None
     # Defaults are filled in, so the stored params say exactly what will run
-    assert job["params"] == {"crater_diameters": [18.8], "diameter_error": 0.05, "material": None}
+    assert job["params"] == {"crater_diameters": [18.8], "diameter_error": 0.05, "material": None, "seed": 0}
 
     assert client.get(f"/api/jobs/{job['id']}", headers=ada).json()["status"] == "queued"
 
@@ -695,3 +695,126 @@ def test_app_starts_a_worker_only_when_enabled(db, monkeypatch):
                         ["status"] not in ("queued", "running") and j)
         assert done["status"] == "succeeded", done
     assert not worker._thread.is_alive()   # stopped with the app
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility: seeds, provenance, outdated results, re-running
+# ---------------------------------------------------------------------------
+
+def batch_result(db, **params):
+    submit(db, job_type="inference_batch", params={"crater_diameters": [50.0], **params})
+    job = run_next_job("w1", JOB_TYPES, db, heartbeat_interval=0)
+    assert job["status"] == "succeeded", job["error"]
+    return job
+
+
+def test_a_different_seed_gives_a_different_but_consistent_result(db):
+    a = batch_result(db, seed=1)["result"]["craters"][0]["posterior"]["impactor_diameter"]
+    b = batch_result(db, seed=2)["result"]["craters"][0]["posterior"]["impactor_diameter"]
+    assert a != b                                        # other random draws…
+    assert a["p50"] == pytest.approx(b["p50"], rel=0.1)  # …of the same posterior
+
+
+def test_the_same_seed_gives_the_same_result_exactly(db):
+    assert batch_result(db, seed=7)["result"] == batch_result(db, seed=7)["result"]
+
+
+def test_a_successful_job_records_what_produced_it(db):
+    job = batch_result(db)
+    current = JOB_TYPES["inference_batch"].provenance()
+    assert job["provenance"] == current
+    assert "simulation.inference" in current["modules"]
+    assert "simulation.crater_model" in current["modules"]   # reached through an import
+    assert current["settings"] == {"posterior_samples": 1000}
+    assert JOB_TYPES["inference_batch"].is_current(job["provenance"])
+
+
+def test_failed_and_cancelled_jobs_record_no_provenance(db):
+    submit(db, job_type="inference_batch", params={"crater_diameters": "nonsense"})
+    assert run_next_job("w1", JOB_TYPES, db)["provenance"] is None
+
+
+def test_a_type_that_declares_no_code_is_never_outdated():
+    plain = JobType(params_model=EchoParams, run=lambda params, ctx: {})
+    assert plain.provenance() is None
+    assert plain.is_current(None)
+
+
+@pytest.mark.parametrize("change", [
+    {"settings": {"posterior_samples": 2000}},
+    {"revision": 2},
+    {"code": "simulation.chronology"},
+])
+def test_changing_what_decides_the_result_changes_the_fingerprint(change):
+    from dataclasses import replace
+    current = JOB_TYPES["inference_batch"]
+    changed = replace(current, **change)
+    assert changed.provenance()["fingerprint"] != current.provenance()["fingerprint"]
+    assert not changed.is_current(current.provenance())
+
+
+def make_outdated(db, job_id):
+    """As if the model had changed since the job ran."""
+    from database.models import get_connection
+    conn = get_connection(db)
+    conn.execute("UPDATE jobs SET provenance_json = ? WHERE id = ?",
+                 ('{"fingerprint": "an-older-model"}', job_id))
+    conn.commit()
+    conn.close()
+
+
+def test_api_marks_a_result_outdated_when_the_model_has_changed(client, ada, db):
+    job = client.post("/api/jobs", json=BATCH, headers=ada).json()
+    assert job["outdated"] is False          # nothing to be outdated yet
+    run_next_job("w1", JOB_TYPES, db, heartbeat_interval=0)
+
+    fresh = client.get(f"/api/jobs/{job['id']}", headers=ada).json()
+    assert fresh["outdated"] is False
+    assert fresh["provenance"]["fingerprint"] == JOB_TYPES["inference_batch"].provenance()["fingerprint"]
+
+    make_outdated(db, job["id"])
+    assert client.get(f"/api/jobs/{job['id']}", headers=ada).json()["outdated"] is True
+    assert client.get("/api/jobs", headers=ada).json()["jobs"][0]["outdated"] is True
+
+
+def test_a_result_with_no_record_of_its_origin_counts_as_outdated(client, ada, db):
+    from database.models import get_connection
+    job = client.post("/api/jobs", json=BATCH, headers=ada).json()
+    run_next_job("w1", JOB_TYPES, db, heartbeat_interval=0)
+    conn = get_connection(db)
+    conn.execute("UPDATE jobs SET provenance_json = NULL WHERE id = ?", (job["id"],))
+    conn.commit()
+    conn.close()
+    assert client.get(f"/api/jobs/{job['id']}", headers=ada).json()["outdated"] is True
+
+
+def test_rerun_queues_the_same_work_and_refreshes_an_outdated_result(client, ada, db):
+    request = {"type": "inference_batch",
+               "params": {"crater_diameters": [18.8, 43.0], "diameter_error": 0.1, "seed": 5}}
+    original = client.post("/api/jobs", json=request, headers=ada).json()
+    run_next_job("w1", JOB_TYPES, db, heartbeat_interval=0)
+    make_outdated(db, original["id"])
+
+    response = client.post(f"/api/jobs/{original['id']}/rerun", headers=ada)
+    assert response.status_code == 202
+    again = response.json()
+    assert again["id"] != original["id"] and again["status"] == "queued"
+    assert again["params"] == original["params"]
+
+    run_next_job("w1", JOB_TYPES, db, heartbeat_interval=0)
+    new = client.get(f"/api/jobs/{again['id']}", headers=ada).json()
+    old = client.get(f"/api/jobs/{original['id']}", headers=ada).json()
+    assert new["outdated"] is False and old["outdated"] is True   # the original is kept as it was
+    assert new["result"] == old["result"]                         # same code in fact, same seed
+
+
+def test_rerun_respects_ownership_and_the_active_limit(client, ada):
+    from backend.routers.jobs import MAX_ACTIVE_JOBS_PER_USER
+
+    job = client.post("/api/jobs", json=BATCH, headers=ada).json()
+    assert client.post(f"/api/jobs/{job['id']}/rerun", headers=sign_up(client, "grace")).status_code == 404
+    assert client.post("/api/jobs/99999/rerun", headers=ada).status_code == 404
+    assert client.post(f"/api/jobs/{job['id']}/rerun").status_code == 401
+    for _ in range(MAX_ACTIVE_JOBS_PER_USER - 1):
+        assert client.post(f"/api/jobs/{job['id']}/rerun", headers=ada).status_code == 202
+    assert client.post(f"/api/jobs/{job['id']}/rerun", headers=ada).status_code == 429

@@ -31,6 +31,10 @@ class InferenceBatchParams(BaseModel):
     material: Optional[Literal["regolith", "rock"]] = Field(
         None, description="Target scaling; default: regolith for craters up to 125 m, rock above"
     )
+    seed: int = Field(
+        0, ge=0, le=2**31 - 1,
+        description="Seed of the random draws: the same seed gives the same result, exactly"
+    )
 
 
 def run_inference_batch(params: InferenceBatchParams, ctx: JobContext) -> dict:
@@ -41,6 +45,7 @@ def run_inference_batch(params: InferenceBatchParams, ctx: JobContext) -> dict:
         posterior = infer(
             Observation(crater_diameter=diameter, diameter_error=params.diameter_error,
                         material=params.material),
+            seed=params.seed,
             # Same as POST /api/inference, so a crater gets the same answer either
             # way; only the summaries are kept (the draws are 300 kB per crater)
             posterior_samples=INFERENCE_POSTERIOR_SAMPLES,
@@ -60,5 +65,7 @@ JOB_TYPES: dict[str, JobType] = {
         params_model=InferenceBatchParams,
         run=run_inference_batch,
         description="Infer the impactor behind each of up to 500 craters.",
+        code="simulation.inference",
+        settings={"posterior_samples": INFERENCE_POSTERIOR_SAMPLES},
     ),
 }

@@ -39,7 +39,7 @@ MAX_ATTEMPTS = 3
 
 _SUMMARY_COLUMNS = (
     "id, user_id, type, params_json, status, progress, error, attempts, "
-    "cancel_requested, worker_id, created_at, started_at, heartbeat_at, finished_at"
+    "cancel_requested, worker_id, created_at, started_at, heartbeat_at, finished_at, provenance_json"
 )
 
 
@@ -53,6 +53,8 @@ def _to_job(row) -> dict:
     if "result_json" in job:
         raw = job.pop("result_json")
         job["result"] = None if raw is None else json.loads(raw)
+    raw = job.pop("provenance_json")
+    job["provenance"] = None if raw is None else json.loads(raw)
     job["cancel_requested"] = bool(job["cancel_requested"])
     return job
 
@@ -204,18 +206,23 @@ def heartbeat(job_id: int, worker_id: str, progress: float,
 
 def finish_job(job_id: int, worker_id: str, status: str, result: Optional[dict] = None,
                error: Optional[str] = None, db_path: Optional[str] = None,
-               now: Optional[datetime] = None) -> bool:
-    """End a running job.  False if it was no longer this worker's to end."""
+               now: Optional[datetime] = None, provenance: Optional[dict] = None) -> bool:
+    """
+    End a running job.  False if it was no longer this worker's to end.
+
+    `provenance` records which code produced `result` (backend/provenance.py).
+    """
     if status not in FINISHED:
         raise ValueError(f"status must be one of {FINISHED}.")
     conn = get_connection(db_path)
     try:
         cursor = conn.execute(
-            "UPDATE jobs SET status = ?, result_json = ?, error = ?, finished_at = ?, "
+            "UPDATE jobs SET status = ?, result_json = ?, error = ?, finished_at = ?, provenance_json = ?, "
             "progress = CASE WHEN ? = 1 THEN 1 ELSE progress END "
             "WHERE id = ? AND worker_id = ? AND status = ?",
             (status, None if result is None else json.dumps(result, allow_nan=False), error,
-             _now(now).isoformat(), int(status == SUCCEEDED), job_id, worker_id, RUNNING),
+             _now(now).isoformat(), None if provenance is None else json.dumps(provenance),
+             int(status == SUCCEEDED), job_id, worker_id, RUNNING),
         )
         conn.commit()
         return cursor.rowcount == 1

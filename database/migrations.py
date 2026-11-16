@@ -190,12 +190,21 @@ def _jobs(conn, postgres: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 3 — which code produced a job's result (backend/provenance.py)
+# ---------------------------------------------------------------------------
+
+def _job_provenance(conn, postgres: bool) -> None:
+    conn.execute("ALTER TABLE jobs ADD COLUMN provenance_json TEXT")
+
+
+# ---------------------------------------------------------------------------
 # The list.  Append only.
 # ---------------------------------------------------------------------------
 
 MIGRATIONS: list[Migration] = [
     Migration(1, "baseline", _baseline),
     Migration(2, "background jobs", _jobs),
+    Migration(3, "job provenance", _job_provenance),
 ]
 
 

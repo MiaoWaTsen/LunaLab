@@ -22,12 +22,13 @@ import secrets
 import socket
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 from pydantic import BaseModel
 
+from backend import provenance
 from database import jobs as queue
 
 log = logging.getLogger("lunalab.jobs")
@@ -42,6 +43,26 @@ class JobType:
     params_model: type[BaseModel]
     run: Callable  # run(params: params_model, ctx: JobContext) -> dict (JSON-serialisable)
     description: str = ""
+    # What decides the result, besides the params (see backend/provenance.py):
+    # the science module the handler calls into (its imports are followed),
+    code: Optional[str] = None
+    # constants the handler passes to it,
+    settings: dict = field(default_factory=dict)
+    # and the handler itself: bump when it changes what it computes or returns.
+    revision: int = 1
+
+    def provenance(self) -> Optional[dict]:
+        """The record stored with a result, or None for a type that declares no code."""
+        if self.code is None:
+            return None
+        return provenance.describe(self.code, self.settings, self.revision)
+
+    def is_current(self, recorded: Optional[dict]) -> bool:
+        """Would this type, as it stands now, produce the result `recorded` describes?"""
+        current = self.provenance()
+        if current is None:
+            return True   # nothing declared, nothing to compare
+        return recorded is not None and recorded.get("fingerprint") == current["fingerprint"]
 
 
 class JobCancelled(Exception):
@@ -115,7 +136,8 @@ def run_next_job(worker_id: str, job_types: dict[str, JobType], db_path: Optiona
         # Validated at submission, but the job may have waited across a deploy
         params = job_type.params_model.model_validate(job["params"])
         result = job_type.run(params, ctx)
-        if not queue.finish_job(job_id, worker_id, queue.SUCCEEDED, result=result, db_path=db_path):
+        if not queue.finish_job(job_id, worker_id, queue.SUCCEEDED, result=result, db_path=db_path,
+                                provenance=job_type.provenance()):
             log.warning("job %s finished but was no longer ours; result discarded", job_id)
     except JobCancelled:
         queue.finish_job(job_id, worker_id, queue.CANCELLED, db_path=db_path)

@@ -54,6 +54,7 @@ LunaLab/
 │   ├── services.py          # Use cases shared between routers
 │   ├── jobs.py              # Background job runner and worker thread
 │   ├── job_types.py         # The kinds of background job
+│   ├── provenance.py        # Fingerprint of the code behind a result
 │   ├── deps.py              # Authentication dependencies
 │   └── schemas.py           # Pydantic request/response models
 │
@@ -190,7 +191,7 @@ Interactive documentation for every endpoint is served at `/docs`.
 | Case studies | `GET /api/case-studies`, `/{id}` | — |
 | Inference | `GET /api/inference/presets` · `POST /api/inference` | required to run |
 | Surface age | `GET /api/surface-age/synthetic`, `/change6`, `/sites`, `/sites/{id}` | required for `synthetic` |
-| Background jobs | `GET /api/jobs/types` · `POST /api/jobs` · `GET /api/jobs`, `/{id}` · `POST /api/jobs/{id}/cancel` | required, except the types |
+| Background jobs | `GET /api/jobs/types` · `POST /api/jobs` · `GET /api/jobs`, `/{id}` · `POST /api/jobs/{id}/cancel`, `/rerun` | required, except the types |
 
 Register or log in to get a token, then send it as `Authorization: Bearer <token>`.
 Sessions expire after 30 idle minutes. You only see your own experiments.
@@ -215,6 +216,24 @@ time. Jobs therefore survive it: on a clean shutdown the running job returns to 
 one whose worker dies without a word is retried when its heartbeat has been silent for two
 minutes (up to 3 starts). Jobs run one at a time, and only while the service is awake.
 `LUNALAB_JOB_WORKER=0` disables the worker. See `database/jobs.py` and `backend/jobs.py`.
+
+### Reproducible results
+
+A stored result says which code produced it. Each successful job records a `provenance`:
+a fingerprint of the science modules behind it (found by following imports from the module
+the job type names, and hashed without comments, docstrings or formatting), the numpy
+version, and the settings used. Nobody maintains a version number by hand.
+
+- **Same input, same output.** `inference_batch` takes a `seed`; the same params give the
+  same result bit for bit on one deployment (across machines, to floating-point rounding).
+- **Outdated results are flagged.** A job reads `"outdated": true` once the fingerprint of the
+  running code differs from the one it recorded, i.e. the model has changed since.
+- **Refreshing is one call.** `POST /api/jobs/{id}/rerun` queues the same work again; the
+  original is kept, so the two can be compared.
+
+The fingerprint errs towards flagging: any code change in a module the result depends on
+marks it outdated, including changes that happen not to move the numbers. It does not cover
+data files. See `backend/provenance.py`.
 
 The simulation endpoints in detail:
 
@@ -368,7 +387,7 @@ scaling model, 3D terrain, PostgreSQL for multi-user deployment, background jobs
 
 Next:
 
-- Batch experiments (parameter sweeps) with reproducible, versioned results
+- Parameter sweeps as a second kind of background job
 - Regolith scaling as an option for ordinary simulations (the model has it; the API does not expose it yet)
 - CSV export beyond batch results (experiments, history)
 

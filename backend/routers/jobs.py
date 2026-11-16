@@ -16,7 +16,7 @@ MAX_ACTIVE_JOBS_PER_USER = 3
 
 _PUBLIC_FIELDS = (
     "id", "type", "status", "progress", "params", "result", "error",
-    "cancel_requested", "created_at", "started_at", "finished_at",
+    "cancel_requested", "created_at", "started_at", "finished_at", "provenance",
 )
 
 
@@ -26,7 +26,38 @@ class JobRequest(BaseModel):
 
 
 def _public(job: dict) -> dict:
-    return {field: job[field] for field in _PUBLIC_FIELDS if field in job}
+    public = {field: job[field] for field in _PUBLIC_FIELDS if field in job}
+    # A result is outdated when today's code would not reproduce it: the model
+    # has changed since, or the job type no longer exists
+    job_type = JOB_TYPES.get(job["type"])
+    public["outdated"] = job["status"] == queue.SUCCEEDED and (
+        job_type is None or not job_type.is_current(job["provenance"])
+    )
+    return public
+
+
+def _enqueue(job_type_name: str, raw_params: dict, request: Request, user: dict) -> dict:
+    job_type = JOB_TYPES.get(job_type_name)
+    if job_type is None:
+        raise HTTPException(status_code=422, detail=f"Unknown job type '{job_type_name}'.")
+    try:
+        params = job_type.params_model.model_validate(raw_params)
+    except ValidationError as error:
+        # Same shape as FastAPI's own validation errors
+        detail = json.loads(error.json(include_url=False, include_input=False))
+        raise HTTPException(status_code=422, detail=detail)
+    if queue.count_active_jobs(user["id"]) >= MAX_ACTIVE_JOBS_PER_USER:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You already have {MAX_ACTIVE_JOBS_PER_USER} jobs queued or running. "
+                   "Wait for one to finish, or cancel one.",
+        )
+
+    job = queue.create_job(user["id"], job_type_name, params.model_dump())
+    worker = getattr(request.app.state, "job_worker", None)
+    if worker is not None:
+        worker.notify()
+    return _public(job)
 
 
 def _get_owned_job(job_id: int, user: dict) -> dict:
@@ -50,27 +81,7 @@ def list_job_types():
 @router.post("", status_code=202)
 def submit_job(req: JobRequest, request: Request, user: dict = Depends(require_user)):
     """Queue a job.  Poll GET /api/jobs/{id} until its status is no longer queued or running."""
-    job_type = JOB_TYPES.get(req.type)
-    if job_type is None:
-        raise HTTPException(status_code=422, detail=f"Unknown job type '{req.type}'.")
-    try:
-        params = job_type.params_model.model_validate(req.params)
-    except ValidationError as error:
-        # Same shape as FastAPI's own validation errors
-        detail = json.loads(error.json(include_url=False, include_input=False))
-        raise HTTPException(status_code=422, detail=detail)
-    if queue.count_active_jobs(user["id"]) >= MAX_ACTIVE_JOBS_PER_USER:
-        raise HTTPException(
-            status_code=429,
-            detail=f"You already have {MAX_ACTIVE_JOBS_PER_USER} jobs queued or running. "
-                   "Wait for one to finish, or cancel one.",
-        )
-
-    job = queue.create_job(user["id"], req.type, params.model_dump())
-    worker = getattr(request.app.state, "job_worker", None)
-    if worker is not None:
-        worker.notify()
-    return _public(job)
+    return _enqueue(req.type, req.params, request, user)
 
 
 @router.get("")
@@ -93,3 +104,14 @@ def cancel_job(job_id: int, user: dict = Depends(require_user)):
     """
     _get_owned_job(job_id, user)
     return _public(queue.request_cancel(job_id))
+
+
+@router.post("/{job_id}/rerun", status_code=202)
+def rerun_job(job_id: int, request: Request, user: dict = Depends(require_user)):
+    """
+    Queue a new job with the same type and params as an existing one, to
+    refresh an outdated result or check that a result reproduces.  The
+    original job is kept.
+    """
+    job = _get_owned_job(job_id, user)
+    return _enqueue(job["type"], job["params"], request, user)

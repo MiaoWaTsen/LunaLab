@@ -345,6 +345,41 @@ def test_batch_job_runs_in_the_background_and_shows_its_result(page, server):
     assert page.locator("#jobs-body tr").count() == 1
 
 
+def test_outdated_batch_result_is_flagged_and_can_be_run_again(page, server):
+    import sqlite3
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+    page.fill("#in-diameters", "18.8")
+    page.fill("#in-seed", "3")
+    page.click("#btn-submit")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert "seed 3" in page.inner_text("#result-provenance")
+    assert page.locator("[data-outdated]").count() == 0
+    first_row = page.inner_text("#result-body tr")
+
+    # As if the model had been changed since the job ran
+    conn = sqlite3.connect(server["db"])
+    conn.execute("UPDATE jobs SET provenance_json = ?", ('{"fingerprint": "older", "numpy": "1.0"}',))
+    conn.commit()
+    conn.close()
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("[data-outdated]")
+    page.wait_for_selector("#result-outdated:not(.hidden)")
+
+    page.click("#jobs-body button[data-action='rerun']")
+    page.wait_for_function("document.querySelectorAll('#jobs-body tr').length === 2")
+    page.wait_for_selector("#result-content:not(.hidden) >> #result-provenance:has-text('seed 3')")
+    page.wait_for_selector("#jobs-body tr:first-child [data-status]:text-is('succeeded')")
+    # The new job is current; the old one is still listed, still flagged
+    assert page.locator("#jobs-body tr:first-child [data-outdated]").count() == 0
+    assert page.locator("#jobs-body tr:nth-child(2) [data-outdated]").count() == 1
+    page.wait_for_selector("#result-outdated", state="hidden")
+    assert page.inner_text("#result-body tr") == first_row   # same seed, same numbers
+
+
 def test_batch_rejects_a_bad_list_before_submitting(page, server):
     base = server["base"]
     register(page, base)
