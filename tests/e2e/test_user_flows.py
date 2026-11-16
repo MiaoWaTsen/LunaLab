@@ -36,7 +36,9 @@ def _free_port() -> int:
 def server(tmp_path_factory):
     port = _free_port()
     db = tmp_path_factory.mktemp("e2e") / "e2e.db"
-    env = dict(os.environ, LUNALAB_DB_PATH=str(db))
+    # The unit tests run jobs by hand (conftest turns the worker off); here the
+    # real worker thread runs them, as in production
+    env = dict(os.environ, LUNALAB_DB_PATH=str(db), LUNALAB_JOB_WORKER="1")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.api:app", "--port", str(port)],
         cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -317,3 +319,207 @@ def test_inference_shows_the_last_preset_clicked(page, server):
     page.wait_for_timeout(300)
     note = page.inner_text("#headline-note")
     assert note.startswith("2,200 m") and "flash" not in note
+
+
+def test_batch_job_runs_in_the_background_and_shows_its_result(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+
+    page.fill("#in-diameters", "18.8\n43, 2000")
+    assert page.inner_text("#diameter-hint").startswith("3 craters")
+    page.click("#btn-submit")
+
+    # The worker thread picks the job up; the page polls until it is done
+    page.wait_for_selector("#jobs-body tr [data-status]:text-is('succeeded')")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert page.locator("#result-body tr").count() == 3
+    assert page.inner_text("#result-body tr:nth-child(3) td:nth-child(2)") == "Rock"
+    assert page.locator("#jobs-body button[data-action='cancel']").count() == 0
+
+    # The job belongs to the account, not the page: it is still there after a reload
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert page.locator("#jobs-body tr").count() == 1
+
+
+def test_outdated_batch_result_is_flagged_and_can_be_run_again(page, server):
+    import sqlite3
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+    page.fill("#in-diameters", "18.8")
+    page.fill("#in-seed", "3")
+    page.click("#btn-submit")
+    page.wait_for_selector("#result-content:not(.hidden)")
+    assert "seed 3" in page.inner_text("#result-provenance")
+    assert page.locator("[data-outdated]").count() == 0
+    first_row = page.inner_text("#result-body tr")
+
+    # As if the model had been changed since the job ran
+    conn = sqlite3.connect(server["db"])
+    conn.execute("UPDATE jobs SET provenance_json = ?", ('{"fingerprint": "older", "numpy": "1.0"}',))
+    conn.commit()
+    conn.close()
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("[data-outdated]")
+    page.wait_for_selector("#result-outdated:not(.hidden)")
+
+    page.click("#jobs-body button[data-action='rerun']")
+    page.wait_for_function("document.querySelectorAll('#jobs-body tr').length === 2")
+    page.wait_for_selector("#result-content:not(.hidden) >> #result-provenance:has-text('seed 3')")
+    page.wait_for_selector("#jobs-body tr:first-child [data-status]:text-is('succeeded')")
+    # The new job is current; the old one is still listed, still flagged
+    assert page.locator("#jobs-body tr:first-child [data-outdated]").count() == 0
+    assert page.locator("#jobs-body tr:nth-child(2) [data-outdated]").count() == 1
+    page.wait_for_selector("#result-outdated", state="hidden")
+    assert page.inner_text("#result-body tr") == first_row   # same seed, same numbers
+
+
+def test_batch_rejects_a_bad_list_before_submitting(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+
+    page.fill("#in-diameters", "18.8\nbig")
+    assert "not a positive number" in page.inner_text("#diameter-hint")
+    page.click("#btn-submit")
+    page.wait_for_selector(".toast")
+    assert page.locator("#jobs-body tr").count() == 0
+
+
+def test_batch_loads_craters_around_a_landing_site(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#in-site option", state="attached")   # options are never "visible"
+
+    page.select_option("#in-site", "change5")
+    page.select_option("#in-radius", "25")
+    page.click("#btn-load-site")
+    page.wait_for_function("document.getElementById('in-diameters').value.length > 0")
+    # Catalogue diameters are in km; the job takes metres
+    first = float(page.input_value("#in-diameters").split()[0])
+    assert first >= 1000
+    assert "crater" in page.inner_text("#diameter-hint")
+
+
+def test_phone_menu_opens_navigates_and_fits_the_screen(browser, server):
+    base = server["base"]
+    ctx = browser.new_context(viewport={"width": 390, "height": 780})
+    ctx.route(EXTERNAL_CDN, _offline_cdn)
+    page = ctx.new_page()
+    try:
+        register(page, base)
+        wait_url(page, f"{base}/")
+        toggle = page.locator(".navbar__toggle")
+        toggle.wait_for()
+        assert toggle.inner_text().strip() == "3D Moon"          # names the current page
+        assert not page.locator(".navbar__links").is_visible()   # collapsed until asked for
+
+        toggle.click()
+        page.wait_for_selector(".navbar__toggle[aria-expanded='true']")
+        page.keyboard.press("Escape")
+        page.wait_for_selector(".navbar__toggle[aria-expanded='false']")
+
+        toggle.click()
+        page.click(".navbar__link:has-text('History')")
+        wait_url(page, f"{base}/history")
+        page.locator(".navbar__toggle").wait_for()
+        assert page.locator(".navbar__toggle").inner_text().strip() == "History"
+
+        # No page scrolls sideways on a phone
+        for path in ("/", "/experiment", "/challenge", "/batch", "/history", "/surface-age"):
+            goto(page, f"{base}{path}")
+            # Measure the settled page: tables and charts arrive after the HTML
+            page.wait_for_load_state("networkidle")
+            widths = page.evaluate("[document.documentElement.scrollWidth, window.innerWidth]")
+            assert widths[0] <= widths[1] + 1, f"{path} is {widths[0]}px wide on a {widths[1]}px screen"
+    finally:
+        ctx.close()
+
+
+def choose_language(page, code):
+    page.select_option(".lang-select__menu", code)
+    page.wait_for_function("code => document.documentElement.lang === code", arg=code)
+
+
+def test_language_button_translates_the_page_and_the_choice_persists(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/batch")
+    page.wait_for_selector("#jobs-empty:not(.hidden)")
+    assert page.inner_text(".page-header__title") == "Batch Inference"
+
+    choose_language(page, "de")
+    assert page.inner_text(".page-header__title") == "Stapel-Inferenz"
+    assert page.inner_text(".navbar__link--active") == "Stapel"
+    assert page.title() == "LunaLab — Stapel-Inferenz"
+    assert page.get_attribute("label[for='in-seed']", "title") == "Derselbe Seed liefert exakt dasselbe Ergebnis"
+    # The card title keeps its icon element; only the words change
+    assert page.inner_text("#jobs-empty .empty-state__title") == "Noch keine Aufträge"
+
+    # Text a script writes later is translated as it appears, values and all
+    page.fill("#in-diameters", "18.8\n43\n2000")
+    page.wait_for_function("document.getElementById('diameter-hint').textContent === '3 Krater (Limit 500)'")
+
+    # The choice follows the user to the next page
+    goto(page, f"{base}/history")
+    page.wait_for_function("document.querySelector('.page-header__title').textContent === 'Experimentverlauf'")
+    assert page.input_value(".lang-select__menu") == "de"
+
+    # Switching again starts from the English source, not from the German
+    choose_language(page, "ja")
+    assert page.inner_text(".page-header__title") == "実験履歴"
+    choose_language(page, "zh-TW")
+    assert page.inner_text(".page-header__title") == "實驗歷史"
+    choose_language(page, "en")
+    assert page.inner_text(".page-header__title") == "Experiment History"
+    assert page.title() == "LunaLab — Experiment History"
+
+
+def test_translation_moves_inline_elements_without_replacing_them(page, server):
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    goto(page, f"{base}/inference")
+    paragraph = "p.explain:has(strong)"
+    page.wait_for_selector(paragraph)
+    # Tag the <strong> so we can tell the same element from a copy
+    page.evaluate("document.querySelector('p.explain strong').dataset.probe = 'original'")
+    choose_language(page, "fr")
+    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "énergie"
+    assert "le cratère fixe à peu près" in page.inner_text(paragraph)
+    choose_language(page, "en")
+    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "energy"
+
+
+def test_no_interface_text_is_left_untranslated(page, server):
+    """
+    Every language has the same rows (tests/test_i18n_messages.py), so one
+    language finding nothing missing means none of them is missing anything.
+    Text with numbers in it is data or a generated sentence, checked by eye;
+    Chinese text comes from the server's mission descriptions.
+    """
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    choose_language(page, "de")
+    missing = {}
+    for path in ("/", "/experiment", "/challenge", "/case-study", "/inference", "/batch",
+                 "/surface-age", "/history", "/compare", "/login"):
+        goto(page, f"{base}{path}")
+        page.wait_for_load_state("networkidle")
+        found = page.evaluate("""() => [...LunaI18n.missing].filter(text =>
+            !/\\d/.test(text.replace(/<\\/?\\d+\\/?>/g, '')) && !/[\\u4e00-\\u9fff]/.test(text))""")
+        if found:
+            missing[path] = found
+    assert not missing, missing

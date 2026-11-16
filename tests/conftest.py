@@ -15,9 +15,16 @@ import os
 
 import pytest
 
+# Tests drive jobs themselves (backend.jobs.run_next_job), so that nothing
+# depends on a background thread's timing.  Set before the app is imported;
+# the E2E server subprocess inherits it.
+os.environ.setdefault("LUNALAB_JOB_WORKER", "0")
+
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip() or None
 
-_TABLES = "challenge_records, user_sessions, users, experiments"
+# schema_migrations too: with it left behind, init_db would see every
+# migration as applied and recreate nothing
+_TABLES = "jobs, challenge_records, user_sessions, users, experiments, schema_migrations"
 
 
 @pytest.fixture(params=["sqlite", "postgres"])

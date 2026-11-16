@@ -14,9 +14,10 @@ Backend selection:
 
 import sqlite3
 import os
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from database.migrations import migrate
 
 
 # ---------------------------------------------------------------------------
@@ -37,67 +38,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or None
 # Session idle timeout: a token expires after this many minutes without use.
 SESSION_TTL_MINUTES = int(os.environ.get("LUNALAB_SESSION_TTL_MINUTES", "30"))
 
-
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS experiments (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at      TEXT    NOT NULL,
-    impactor_diameter   REAL NOT NULL,
-    impact_velocity     REAL NOT NULL,
-    impact_angle        REAL NOT NULL,
-    impactor_density    REAL NOT NULL,
-    target_density      REAL NOT NULL,
-    surface_gravity     REAL NOT NULL,
-    crater_diameter     REAL NOT NULL,
-    crater_depth        REAL NOT NULL,
-    rim_height          REAL NOT NULL,
-    ejecta_volume       REAL NOT NULL,
-    transient_crater_diameter REAL NOT NULL,
-    energy_joules       REAL NOT NULL,
-    model_name          TEXT NOT NULL,
-    warnings_json       TEXT NOT NULL DEFAULT '[]',
-    impact_azimuth      REAL DEFAULT 0.0,
-    latitude            REAL,
-    longitude           REAL,
-    surface_elevation   REAL,
-    user_id             INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    username        TEXT    UNIQUE NOT NULL,
-    password_hash   TEXT    NOT NULL,
-    salt            TEXT    NOT NULL,
-    created_at      TEXT    NOT NULL,
-    xp              INTEGER DEFAULT 0,
-    level           INTEGER DEFAULT 1,
-    rank_title      TEXT    DEFAULT 'Cadet Researcher'
-);
-
-CREATE TABLE IF NOT EXISTS user_sessions (
-    token           TEXT    PRIMARY KEY,
-    user_id         INTEGER NOT NULL,
-    created_at      TEXT    NOT NULL,
-    expires_at      TEXT,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS challenge_records (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id             INTEGER,
-    challenge_id        TEXT    NOT NULL,
-    score               REAL    NOT NULL,
-    grade               TEXT    NOT NULL,
-    diameter_error_pct  REAL    NOT NULL,
-    depth_error_pct     REAL    NOT NULL,
-    experiment_id       INTEGER,
-    created_at          TEXT    NOT NULL
-);
-"""
 
 import hashlib
 import secrets
@@ -217,6 +157,9 @@ class _PgConnection:
     def commit(self) -> None:
         self._conn.commit()
 
+    def rollback(self) -> None:
+        self._conn.rollback()
+
     def close(self) -> None:
         self._conn.close()
 
@@ -228,24 +171,6 @@ def _integrity_errors() -> tuple:
 
         errors.append(psycopg.IntegrityError)
     return tuple(errors)
-
-
-def _table_columns(conn, table: str, postgres: bool) -> list[str]:
-    if postgres:
-        rows = conn.execute(
-            "SELECT column_name AS name FROM information_schema.columns "
-            "WHERE table_schema = current_schema() AND table_name = ?",
-            (table,),
-        ).fetchall()
-    else:
-        rows = conn.execute(f"PRAGMA table_info({table});").fetchall()
-    return [row["name"] for row in rows]
-
-
-def _postgres_schema(sql: str) -> str:
-    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
-    # SQLite REAL is 64-bit; PostgreSQL REAL is only 32-bit.
-    return re.sub(r"\bREAL\b", "DOUBLE PRECISION", sql)
 
 
 def get_connection(db_path: Optional[str] = None):
@@ -260,33 +185,12 @@ def get_connection(db_path: Optional[str] = None):
 
 
 def init_db(db_path: Optional[str] = None) -> None:
-    """Create tables if they don't exist, and apply migrations."""
-    postgres = _use_postgres(db_path)
+    """Bring the schema up to date (see database/migrations.py)."""
     conn = get_connection(db_path)
-    conn.executescript(_postgres_schema(_CREATE_TABLE_SQL) if postgres else _CREATE_TABLE_SQL)
-
-    # Migrations: Add new columns if missing
-    columns = _table_columns(conn, "experiments", postgres)
-    
-    if "impact_azimuth" not in columns:
-        conn.execute("ALTER TABLE experiments ADD COLUMN impact_azimuth REAL DEFAULT 0.0;")
-    if "latitude" not in columns:
-        conn.execute("ALTER TABLE experiments ADD COLUMN latitude REAL;")
-    if "longitude" not in columns:
-        conn.execute("ALTER TABLE experiments ADD COLUMN longitude REAL;")
-    if "surface_elevation" not in columns:
-        conn.execute("ALTER TABLE experiments ADD COLUMN surface_elevation REAL;")
-    if "user_id" not in columns:
-        conn.execute("ALTER TABLE experiments ADD COLUMN user_id INTEGER;")
-
-    session_columns = _table_columns(conn, "user_sessions", postgres)
-    if "expires_at" not in session_columns:
-        # Pre-existing sessions have no expiry, so drop them (users log in again).
-        conn.execute("ALTER TABLE user_sessions ADD COLUMN expires_at TEXT;")
-        conn.execute("DELETE FROM user_sessions;")
-
-    conn.commit()
-    conn.close()
+    try:
+        migrate(conn, _use_postgres(db_path))
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

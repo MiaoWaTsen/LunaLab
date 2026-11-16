@@ -73,7 +73,50 @@ if (!isLoginPage() && !getAuthToken()) {
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function api(method, path, body = null) {
+// A thin bar at the top of the page while requests are in flight.  It waits
+// a moment first, so quick requests (most of them) show nothing at all.
+const NET_PROGRESS_DELAY_MS = 150;
+let netRequests = 0;
+let netTimer = null;
+
+function netProgressBar() {
+    let bar = document.getElementById('net-progress');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'net-progress';
+        bar.className = 'net-progress';
+        bar.setAttribute('role', 'progressbar');
+        bar.setAttribute('aria-label', 'Loading');
+        document.body.appendChild(bar);
+    }
+    return bar;
+}
+
+function netStart() {
+    if (++netRequests === 1) {
+        netTimer = setTimeout(() => netProgressBar().classList.add('net-progress--active'), NET_PROGRESS_DELAY_MS);
+    }
+}
+
+function netDone() {
+    if (--netRequests === 0) {
+        clearTimeout(netTimer);
+        document.getElementById('net-progress')?.classList.remove('net-progress--active');
+    }
+}
+
+// quiet: no activity bar, for background polling the user did not ask for
+async function api(method, path, body = null, { quiet = false } = {}) {
+    if (quiet) return apiRequest(method, path, body);
+    netStart();
+    try {
+        return await apiRequest(method, path, body);
+    } finally {
+        netDone();
+    }
+}
+
+async function apiRequest(method, path, body) {
     const headers = { 'Content-Type': 'application/json' };
     const token = getAuthToken();
     if (token) {
@@ -110,9 +153,9 @@ async function api(method, path, body = null) {
     return res.json();
 }
 
-const apiGet    = (path) => api('GET', path);
-const apiPost   = (path, body) => api('POST', path, body);
-const apiDelete = (path) => api('DELETE', path);
+const apiGet    = (path, opts) => api('GET', path, null, opts);
+const apiPost   = (path, body, opts) => api('POST', path, body, opts);
+const apiDelete = (path, opts) => api('DELETE', path, null, opts);
 
 
 // ---------------------------------------------------------------------------
@@ -175,7 +218,8 @@ function formatNumber(value, decimals = 2) {
 function formatDate(isoString) {
     if (!isoString) return '—';
     const d = new Date(isoString);
-    return d.toLocaleDateString(undefined, {
+    // In the interface language (i18n.js sets <html lang>), not the browser's
+    return d.toLocaleDateString(document.documentElement.lang || undefined, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -484,7 +528,7 @@ function updateNavUser() {
     if (user) {
         container.innerHTML = `
             <div class="user-badge" title="${escapeHtml(user.rank_title)}">
-                <span class="user-badge__name">${escapeHtml(user.username)}</span>
+                <span class="user-badge__name" translate="no">${escapeHtml(user.username)}</span>
                 <span class="user-badge__rank">Lv.${user.level}</span>
                 <span class="user-badge__xp">${user.xp} XP</span>
                 <button type="button" class="btn btn--ghost btn--sm" onclick="logoutCommander()" title="Logout" style="padding: 2px 6px; font-size: 0.75rem; color: var(--text-muted);">
@@ -501,8 +545,55 @@ function updateNavUser() {
     }
 }
 
+// On narrow screens the links collapse into a menu under a button that names
+// the current page.  The button is added here, so the pages' markup (and the
+// no-JavaScript fallback, a scrolling strip) stays as it is.
+function setupNavMenu() {
+    const nav = document.querySelector('.navbar');
+    const links = nav?.querySelector('.navbar__links');
+    if (!links) return;
+    links.id = links.id || 'navbar-links';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'navbar__toggle';
+    toggle.setAttribute('aria-controls', links.id);
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.title = 'Menu';
+    // The label repeats the active link, which i18n.js translates: copy it,
+    // and copy it again when the language changes, rather than translate twice
+    toggle.innerHTML = '<span class="navbar__toggle-bars" aria-hidden="true"></span>'
+        + '<span class="navbar__toggle-label" translate="no"></span>';
+    const label = toggle.querySelector('.navbar__toggle-label');
+    const syncLabel = () => {
+        label.textContent = links.querySelector('.navbar__link--active')?.textContent.trim() || 'Menu';
+    };
+    syncLabel();
+    document.addEventListener('lunalab:languagechange', syncLabel);
+    window.LunaI18n?.ready.then(syncLabel);
+    links.before(toggle);
+    nav.classList.add('navbar--js');
+
+    const setOpen = open => {
+        nav.classList.toggle('navbar--open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+    };
+    toggle.addEventListener('click', () => setOpen(!nav.classList.contains('navbar--open')));
+    document.addEventListener('click', e => {
+        if (!nav.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && nav.classList.contains('navbar--open')) {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+}
+
 // Check and sync user status on load
 document.addEventListener('DOMContentLoaded', async () => {
+    setupNavMenu();
+
     // Inject nav slot if not already present in .navbar__inner
     const navInner = document.querySelector('.navbar__inner');
     if (navInner && !document.getElementById('nav-user-slot')) {
@@ -513,7 +604,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         slot.style.gap = '8px';
         slot.style.marginLeft = 'auto';
         navInner.appendChild(slot);
+        // The language button (i18n.js) sits just left of the user badge
+        const languageButton = navInner.querySelector('.lang-select');
+        if (languageButton) {
+            navInner.insertBefore(languageButton, slot);
+            slot.style.marginLeft = '0';
+        }
     }
+
+    // Show the signed-in user at once from the last known profile, so the
+    // navbar does not change shape when the check below returns
+    updateNavUser();
 
     // Verify token with backend
     const token = getAuthToken();

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="LunaLab — View and manage your experiment history. Compare past simulation results.">
     <title>LunaLab — Experiment History</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
+    <link rel="stylesheet" href="/static/styles.css?v=6">
 </head>
 <body>
 <div class="app-wrapper">
@@ -23,6 +23,7 @@
                 <li><a href="/challenge" class="navbar__link">Challenges</a></li>
                 <li><a href="/case-study" class="navbar__link">Case Study</a></li>
                 <li><a href="/inference" class="navbar__link">Inference</a></li>
+                <li><a href="/batch" class="navbar__link">Batch</a></li>
                 <li><a href="/surface-age" class="navbar__link">Surface Age</a></li>
                 <li><a href="/history" class="navbar__link navbar__link--active">History</a></li>
             </ul>
@@ -41,16 +42,16 @@
         <!-- Comparison Instruction & Actions bar -->
         <div class="card" id="actions-bar" style="display:none; padding: var(--space-md); margin-bottom: var(--space-lg); background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9)); border-color: rgba(99, 102, 241, 0.4);">
             <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: var(--space-md);">
-                <div class="flex items-center gap-md">
+                <div class="flex items-center gap-md" style="min-width: 0;">
                     <span style="font-size: 1.25rem;">⚖️</span>
-                    <div>
+                    <div style="min-width: 0;">
                         <div style="font-weight: 600; color: #e2e8f0; font-size: 0.95rem;">Experiment Comparison Tool</div>
                         <div style="font-size: 0.8rem; color: var(--text-muted);" id="comparison-hint">
                             Select 2 or more checkboxes in the table below to compare parameters & cross-section profiles side-by-side.
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-sm">
+                <div class="flex items-center gap-sm" style="flex-wrap: wrap;">
                     <span id="selected-count" class="badge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8;">0 selected</span>
                     <button class="btn btn--primary" id="btn-compare" disabled onclick="compareSelected()" style="box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);">
                         📊 Compare Selected
@@ -109,7 +110,8 @@
     </footer>
 </div>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/i18n.js?v=1"></script>
+<script src="/static/app.js?v=9"></script>
 <script>
 let allExperiments = [];
 let selectedIds = new Set();
