@@ -132,23 +132,28 @@ const marker = new THREE.Mesh(markerGeo, markerMat);
 marker.visible = false;
 scene.add(marker);
 
-// Load real NASA LRO Moon texture map
+// NASA SVS CGI Moon Kit: LROC colour mosaic (no shading baked in) and a
+// normal map from LOLA slopes, so all relief shading follows the real Sun.
+// The 4K colour map keeps one texel per device pixel at the default zoom
+// (the 500 px canvas, viewed from distance 3) up to a pixel ratio of 2.  No
+// 8K map: it takes ~180 MB of GPU memory with mipmaps, enough for iOS Safari
+// to reload the tab, and 3x phones are the only screens that would use it.
 const textureLoader = new THREE.TextureLoader();
+const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
 textureLoader.load(
-    '/static/textures/moon_color.jpg',
+    '/static/textures/moon_color_4k.jpg',
     (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = maxAnisotropy;
         material.map = texture;
         material.roughness = 0.85;
         material.metalness = 0.05;
         material.needsUpdate = true;
         if (loadingOverlay) loadingOverlay.style.display = 'none';
 
-        // Relief from real LOLA laser altimetry (not from image brightness),
-        // so maria read as low plains and highlands as high ground.
-        textureLoader.load('/static/textures/moon_lola_height.png', (height) => {
-            material.bumpMap = height;
-            material.bumpScale = 3.0;
+        textureLoader.load('/static/textures/moon_normal_4k.jpg', (normal) => {
+            normal.anisotropy = maxAnisotropy;
+            material.normalMap = normal;
             material.needsUpdate = true;
         });
     },

@@ -97,7 +97,7 @@ LunaLab/
 │   ├── app.js               # Shared JavaScript utilities
 │   ├── i18n.js              # Interface translation engine and language button
 │   ├── i18n/messages.json   # Translations: one row per English string
-│   └── textures/            # Moon colour and height maps
+│   └── textures/            # Moon colour and normal maps
 │
 ├── scripts/
 │   └── build_crater_data.py # Rebuilds simulation/data/ from the source catalogues
@@ -368,9 +368,12 @@ impactor density 3000 kg/m³, gravity 1.62 m/s².
 asymmetric ejecta below 45°, an uprange forbidden zone below 25°, elongated craters below 15°,
 and butterfly ejecta below 10°. Ejecta thickness decays as `(r/R)^-3` (McGetchin et al. 1973).
 
-**Lunar surface data:** the 3D Moon uses NASA LRO imagery for colour and the LOLA laser-altimeter
-DEM (LDEM_4, 4 px/deg, [PDS Geosciences Node](https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/))
-for relief. `GET /api/moon/elevation?lat=&lon=` returns real elevation in metres relative to the
+**Lunar surface data:** the 3D Moon is textured from NASA's [CGI Moon Kit](https://svs.gsfc.nasa.gov/4720):
+the LROC colour mosaic, which has no shading baked in, and a normal map computed from LOLA slopes
+(16 px/deg), so all relief shading follows the real Sun. The 4K colour map keeps one texel per
+screen pixel at the default zoom up to a pixel ratio of 2. Elevations come
+from the LOLA DEM (LDEM_4, 4 px/deg, [PDS Geosciences Node](https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/)):
+`GET /api/moon/elevation?lat=&lon=` returns real elevation in metres relative to the
 1737.4 km reference sphere; experiments store it as `surface_elevation`.
 
 **Sunlight & libration:** `GET /api/moon/illumination?at=<ISO time>` returns the sub-solar point,
@@ -469,9 +472,14 @@ production database.
 | File | Source | License |
 |------|--------|---------|
 | `terrain/data/lola_ldem4_m.npy` | NASA LRO LOLA LDEM_4 | Public domain |
+| `frontend/textures/moon_color_4k.jpg` | LROC colour map, [CGI Moon Kit](https://svs.gsfc.nasa.gov/4720) (NASA's Scientific Visualization Studio) | Public domain (NASA) |
+| `frontend/textures/moon_normal_4k.jpg` | Computed from LOLA `ldem_16.tif`, [CGI Moon Kit](https://svs.gsfc.nasa.gov/4720) (NASA's Scientific Visualization Studio) | Public domain (NASA) |
 | `simulation/data/landing_site_craters.json` | Robbins (2018) lunar crater database, via [Zenodo record 21500453](https://zenodo.org/records/21500453) | CC BY 4.0 |
 | `simulation/data/landing_site_craters.json` (unit flags, areas, outlines) | [Unified Geologic Map of the Moon, 1:5M](https://astrogeology.usgs.gov/search/map/unified_geologic_map_of_the_moon_1_5m_2020) (Fortezzo, Spudis & Harrel 2020), USGS | Public domain |
 | `simulation/data/change6_count.json` | Chang'e-6 landing-site crater count, [Craterstats](https://github.com/ggmichael/craterstats) sample data (G. Michael) | BSD 3-Clause |
+
+The Moon textures are rebuilt with `python scripts/build_moon_textures.py lroc_color_poles_8k.tif ldem_16.tif`
+(download links in the script).
 
 The crater files are rebuilt from the originals with
 `python scripts/build_crater_data.py ROBBINS_CSV CHANGE6_SCC GEOUNITS_SHP` (see the script for download

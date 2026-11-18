@@ -477,3 +477,21 @@ class TestSurfaceAgeUnits:
 
     def test_radius_off_the_grid_rejected(self, client):
         assert client.get("/api/surface-age/sites", params={"radius_km": 42}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Static files: compression and caching
+# ---------------------------------------------------------------------------
+
+def test_moon_texture_is_sent_uncompressed_and_cacheable(client):
+    """A JPEG gains nothing from gzip; re-compressing 7 MB costs CPU on every request."""
+    r = client.get("/static/textures/moon_color_4k.jpg", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200
+    assert "content-encoding" not in r.headers
+    assert "max-age=604800" in r.headers["cache-control"]
+
+
+def test_scripts_are_still_compressed(client):
+    r = client.get("/static/moon.js", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    assert "cache-control" not in r.headers

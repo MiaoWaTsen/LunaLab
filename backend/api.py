@@ -51,6 +51,37 @@ async def lifespan(application: FastAPI):
 
 
 # ---------------------------------------------------------------------------
+# Compression and caching
+# ---------------------------------------------------------------------------
+
+# JPEG and PNG are compressed already: gzip saves 0.4% on the 7 MB Moon map
+# and costs ~0.3 s of CPU on every request.
+ALREADY_COMPRESSED = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".ico")
+
+
+class GZipExceptImages(GZipMiddleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].lower().endswith(ALREADY_COMPRESSED):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+# The Moon textures are megabytes and change only when rebuilt
+# (scripts/build_moon_textures.py), so browsers keep them for a week instead
+# of downloading them again on every visit.
+TEXTURE_CACHE_CONTROL = "public, max-age=604800"
+
+
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if path.startswith("textures/") and response.status_code in (200, 304):
+            response.headers["Cache-Control"] = TEXTURE_CACHE_CONTROL
+        return response
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -68,7 +99,7 @@ app = FastAPI(
 # The science endpoints return long arrays of numbers, which compress ~3x.
 # Level 1: on the 1 MB synthetic surface, level 9 (the default) takes ~0.9 s
 # to save another 20%; level 1 takes ~15 ms.
-app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
+app.add_middleware(GZipExceptImages, minimum_size=1000, compresslevel=1)
 
 # Allow frontend (served on same origin or dev server) to call the API
 app.add_middleware(
@@ -86,6 +117,6 @@ app.include_router(moon.router)
 app.include_router(science.router)
 
 # Serve static assets (CSS, JS, images)
-app.mount("/static", StaticFiles(directory=pages.FRONTEND_DIR), name="static")
+app.mount("/static", CachedStaticFiles(directory=pages.FRONTEND_DIR), name="static")
 
 app.include_router(pages.router)
