@@ -458,29 +458,27 @@ def test_language_button_translates_the_page_and_the_choice_persists(page, serve
     goto(page, f"{base}/batch")
     page.wait_for_selector("#jobs-empty:not(.hidden)")
     assert page.inner_text(".page-header__title") == "Batch Inference"
+    # Only the two languages the site is written for
+    assert page.eval_on_selector_all(".lang-select__menu option", "os => os.map(o => o.value)") == ["en", "zh-TW"]
 
-    choose_language(page, "de")
-    assert page.inner_text(".page-header__title") == "Stapel-Inferenz"
-    assert page.inner_text(".navbar__link--active") == "Stapel"
-    assert page.title() == "LunaLab — Stapel-Inferenz"
-    assert page.get_attribute("label[for='in-seed']", "title") == "Derselbe Seed liefert exakt dasselbe Ergebnis"
+    choose_language(page, "zh-TW")
+    assert page.inner_text(".page-header__title") == "批次反演"
+    assert page.inner_text(".navbar__link--active") == "批次"
+    assert page.title() == "LunaLab — 批次反演"
+    assert page.get_attribute("label[for='in-seed']", "title") == "相同的種子會得到完全相同的結果"
     # The card title keeps its icon element; only the words change
-    assert page.inner_text("#jobs-empty .empty-state__title") == "Noch keine Aufträge"
+    assert page.inner_text("#jobs-empty .empty-state__title") == "尚無任務"
 
     # Text a script writes later is translated as it appears, values and all
     page.fill("#in-diameters", "18.8\n43\n2000")
-    page.wait_for_function("document.getElementById('diameter-hint').textContent === '3 Krater (Limit 500)'")
+    page.wait_for_function("document.getElementById('diameter-hint').textContent === '3 個撞擊坑（上限 500）'")
 
     # The choice follows the user to the next page
     goto(page, f"{base}/history")
-    page.wait_for_function("document.querySelector('.page-header__title').textContent === 'Experimentverlauf'")
-    assert page.input_value(".lang-select__menu") == "de"
+    page.wait_for_function("document.querySelector('.page-header__title').textContent === '實驗歷史'")
+    assert page.input_value(".lang-select__menu") == "zh-TW"
 
-    # Switching again starts from the English source, not from the German
-    choose_language(page, "ja")
-    assert page.inner_text(".page-header__title") == "実験履歴"
-    choose_language(page, "zh-TW")
-    assert page.inner_text(".page-header__title") == "實驗歷史"
+    # Switching back restores the English source
     choose_language(page, "en")
     assert page.inner_text(".page-header__title") == "Experiment History"
     assert page.title() == "LunaLab — Experiment History"
@@ -495,31 +493,77 @@ def test_translation_moves_inline_elements_without_replacing_them(page, server):
     page.wait_for_selector(paragraph)
     # Tag the <strong> so we can tell the same element from a copy
     page.evaluate("document.querySelector('p.explain strong').dataset.probe = 'original'")
-    choose_language(page, "fr")
-    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "énergie"
-    assert "le cratère fixe à peu près" in page.inner_text(paragraph)
+    choose_language(page, "zh-TW")
+    assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "能量"
+    assert "撞擊坑大致決定的是" in page.inner_text(paragraph)
     choose_language(page, "en")
     assert page.inner_text(f"{paragraph} strong[data-probe='original']") == "energy"
 
 
+def test_charts_are_translated_and_redrawn_on_a_language_switch(page, server):
+    """Plotly draws its own text: titles, axes and legends go through the dictionary too."""
+    base = server["base"]
+    register(page, base)
+    wait_url(page, f"{base}/")
+    calls = []
+    page.expose_function("recordPlot", lambda labels: calls.append(labels))
+    # The stub Plotly records the axis titles and trace names each draw receives
+    record = "(el, data, layout) => { recordPlot([layout.xaxis && layout.xaxis.title, ...data.map(d => d.name)]); return Promise.resolve(); }"
+    page.route("https://cdn.plot.ly/**", lambda route: route.fulfill(
+        status=200, content_type="application/javascript",
+        body=f"window.Plotly = {{ newPlot: {record}, react: {record} }};"))
+    choose_language(page, "zh-TW")
+    goto(page, f"{base}/case-study")
+    page.wait_for_function("document.getElementById('findings').textContent.includes('星曆')")
+    page.wait_for_timeout(500)
+    assert any("預測撞擊坑直徑（m）" in c for c in calls), calls
+    assert any(any(isinstance(x, str) and x.startswith("多孔月壤（90%") for x in c) for c in calls), calls
+
+
 def test_no_interface_text_is_left_untranslated(page, server):
     """
-    Every language has the same rows (tests/test_i18n_messages.py), so one
-    language finding nothing missing means none of them is missing anything.
-    Text with numbers in it is data or a generated sentence, checked by eye;
-    Chinese text comes from the server's mission descriptions.
+    Every page in Traditional Chinese, results included, then in English
+    with no Chinese left on it.  Text that is only numbers and units is
+    data and stays as it is; so do dates, which the browser writes in the
+    page's language.
     """
     base = server["base"]
     register(page, base)
     wait_url(page, f"{base}/")
-    choose_language(page, "de")
-    missing = {}
-    for path in ("/", "/experiment", "/challenge", "/case-study", "/inference", "/batch",
-                 "/surface-age", "/history", "/compare", "/login"):
-        goto(page, f"{base}{path}")
-        page.wait_for_load_state("networkidle")
-        found = page.evaluate("""() => [...LunaI18n.missing].filter(text =>
-            !/\\d/.test(text.replace(/<\\/?\\d+\\/?>/g, '')) && !/[\\u4e00-\\u9fff]/.test(text))""")
-        if found:
-            missing[path] = found
-    assert not missing, missing
+    # Pages and the action that fills each with results
+    actions = {
+        "/": None, "/experiment": "#btn-run", "/challenge": "#btn-run-challenge",
+        "/case-study": None, "/inference": "#btn-infer", "/batch": None,
+        "/surface-age": None, "/history": None, "/compare?ids=1,2": None, "/moon": None, "/login": None,
+    }
+    data_only = """text => {
+        const words = text.replace(/<\\/?\\d+\\/?>/g, '')
+            .replace(/\\b(km\\/s|kg\\/m³|km|kg|cm|m|XP|Lv|[kMGTPE]?J|Ga|Gyr|log₁₀)\\b/g, '');
+        return !/[A-Za-z]{2}/.test(words) || /[\\u4e00-\\u9fff]/.test(text);
+    }"""
+    for language in ("zh-TW", "en"):
+        choose_language(page, language)
+        problems = {}
+        for path, action in actions.items():
+            goto(page, f"{base}{path}")
+            page.wait_for_load_state("networkidle")
+            if action:
+                page.click(action)
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(1000)
+            if language == "zh-TW":
+                found = page.evaluate(f"() => [...LunaI18n.missing].filter(t => !({data_only})(t))")
+            else:
+                found = page.evaluate("""() => {
+                    const out = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                        const node = walker.currentNode;
+                        if (/[\\u4e00-\\u9fff]/.test(node.nodeValue) && !node.parentElement.closest('.lang-select')) {
+                            out.push(node.nodeValue.trim());
+                        }
+                    }
+                    return out;
+                }""")
+            if found:
+                problems[path] = found
+        assert not problems, (language, problems)

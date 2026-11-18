@@ -12,52 +12,52 @@ from typing import Optional
 CHALLENGES = [
     {
         "id": "tycho_crater",
-        "title": "Mission 1: Replicate Tycho Crater (精準重現第谷坑)",
+        "title": "Mission 1: Replicate Tycho Crater",
         "difficulty": "Medium ⭐⭐",
         "badge": "🌕 High Highland Master",
-        "description": "第谷坑 (Tycho Crater) 是月球南部高地最著名的年輕複雜撞擊坑之一（約 1.08 億年前形成），直徑約 85 km，深達 4.8 km，擁有明顯的中央峰。請調整小行星直徑與撞擊速度，嘗試精確重現它的規模！",
+        "description": "Tycho is one of the best-known young complex craters in the Moon's southern highlands (about 108 million years old): about 85 km across and 4.8 km deep, with a prominent central peak. Adjust the asteroid's diameter and velocity to reproduce its size!",
         "target_diameter": 85000.0,  # 85 km
         "target_depth": 4800.0,      # 4.8 km
         "target_angle": 45.0,
         "diameter_tolerance_pct": 10.0,
         "depth_tolerance_pct": 15.0,
-        "tips": "提示：月球上直徑超過約 15 km 的坑會因坑壁崩塌形成平坦坑底與中央峰（複雜坑）。直徑約 5~7 km 的小行星以 15~18 km/s 撞擊可達到第谷坑規模。",
+        "tips": "Tip: on the Moon, craters wider than about 15 km collapse into a flat floor with a central peak (complex craters). An asteroid about 5–7 km across at 15–18 km/s reaches Tycho's size.",
     },
     {
         "id": "grazing_skimmer",
-        "title": "Mission 2: Low-Angle Grazing Impact (低空掠射橢圓坑)",
+        "title": "Mission 2: Low-Angle Grazing Impact",
         "difficulty": "Hard ⭐⭐⭐",
         "badge": "☄️ Grazing Deflector",
-        "description": "挑戰超淺角撞擊 (撞擊角 ≤ 20°)！低於 25° 時，迎面方向會出現沒有噴出物的「禁區」；低於 15° 時，撞擊坑開始沿飛行方向拉長成橢圓形。請製造一個直徑約 2 km 的斜向撞擊坑。",
+        "description": "Try a very shallow impact (angle ≤ 20°)! Below 25° a \"forbidden zone\" with no ejecta appears uprange; below 15° the crater starts to stretch into an ellipse along the flight path. Make an oblique crater about 2 km across.",
         "target_diameter": 2000.0,   # 2 km
         "target_depth": 400.0,       # fresh simple craters: d ≈ 0.2 D (Pike 1977)
         "max_angle": 20.0,
         "diameter_tolerance_pct": 20.0,
         "depth_tolerance_pct": 25.0,
-        "tips": "提示：斜向撞擊只有垂直分量有效挖掘，坑會比垂直撞擊小。試試 60~100 m 的小行星以 18 km/s、10°~15° 撞擊；低於 10° 會出現「蝴蝶狀」噴出物。",
+        "tips": "Tip: only the vertical component of an oblique impact excavates, so the crater is smaller than a vertical impact's. Try a 60–100 m asteroid at 18 km/s and 10°–15°; below 10° the ejecta forms a \"butterfly\" pattern.",
     },
     {
         "id": "dinosaur_extinction",
-        "title": "Mission 3: Chicxulub Cataclysm Energy (恐龍滅絕級撞擊能量)",
+        "title": "Mission 3: Chicxulub Cataclysm Energy",
         "difficulty": "Extreme ⭐⭐⭐⭐",
         "badge": "🦖 Supernova Impact",
-        "description": "重現約 6600 萬年前希克蘇魯伯小行星撞擊地球時的滅世能量釋放（撞擊動能 ≥ 1.0 × 10²³ 焦耳，撞擊坑直徑 ≥ 150 km）！",
+        "description": "Recreate the energy of the Chicxulub impact that struck Earth about 66 million years ago (kinetic energy ≥ 1.0 × 10²³ J, crater ≥ 150 km across)!",
         "min_energy": 1.0e23,
         "target_diameter": 150000.0, # 150 km
         "diameter_tolerance_pct": 25.0,
-        "tips": "提示：需要約 10 km 級別的巨型小行星並以約 20 km/s 撞擊。在月球上，這會形成直徑超過 150 km 的複雜坑。",
+        "tips": "Tip: it takes a giant asteroid around 10 km across at about 20 km/s. On the Moon this makes a complex crater more than 150 km across.",
     },
     {
         "id": "apollo_tranquillity",
-        "title": "Mission 4: Mare Tranquillitatis Micro-Crater (靜海微型坑精確落點)",
+        "title": "Mission 4: Mare Tranquillitatis Micro-Crater",
         "difficulty": "Easy ⭐",
         "badge": "🚀 Apollo Scout",
-        "description": "阿波羅 11 號著陸的靜海平原散佈著直徑數百公尺的小型碗狀坑。請調配一顆直徑僅數十公尺的小隕石，精準製造一個直徑約 300 公尺、深度約 60 公尺的小型碗狀坑！",
+        "description": "The plain of Mare Tranquillitatis, where Apollo 11 landed, is dotted with small bowl-shaped craters a few hundred metres across. Use a meteoroid just tens of metres across to make a bowl-shaped crater about 300 m across and 60 m deep!",
         "target_diameter": 300.0,
         "target_depth": 60.0,
         "diameter_tolerance_pct": 12.0,
         "depth_tolerance_pct": 18.0,
-        "tips": "提示：撞擊坑直徑大約是撞擊體的 60 倍左右。嘗試 4~6 m 的小隕石與 15~20 km/s 的常規撞擊速度（月球平均撞擊速度約 18 km/s）。",
+        "tips": "Tip: a crater is roughly 60 times the size of its impactor. Try a 4–6 m meteoroid at an ordinary 15–20 km/s (the Moon's mean impact speed is about 18 km/s).",
     },
 ]
 
@@ -123,17 +123,17 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
 
     if "max_angle" in ch and angle > ch["max_angle"]:
         penalty += (angle - ch["max_angle"]) * 2.5
-        feedback_notes.append(f"撞擊角度為 {angle}°，高於任務要求的上限 {ch['max_angle']}°。")
+        feedback_notes.append(f"Impact angle {angle}° is above the mission's limit of {ch['max_angle']}°.")
     elif "max_angle" in ch:
-        feedback_notes.append(f"成功採用 {angle}° 低掠射角，達成極端非對稱地形！")
+        feedback_notes.append(f"A grazing {angle}° impact: extreme asymmetric terrain achieved!")
 
     if "min_energy" in ch:
         if energy < ch["min_energy"]:
             energy_ratio = energy / ch["min_energy"]
             penalty += (1.0 - energy_ratio) * 40.0
-            feedback_notes.append("撞擊動能尚未達到滅絕級能量閾值 (10²³ J)，請提升小行星直徑或速度。")
+            feedback_notes.append("The impact energy is below the extinction-level threshold (10²³ J): increase the asteroid's diameter or velocity.")
         else:
-            feedback_notes.append("巨大能量釋放達標！突破 10²³ 焦耳滅世級衝擊門檻。")
+            feedback_notes.append("Energy target reached: the impact breaks the 10²³ J extinction-level threshold!")
 
     # Base score from diameter and depth accuracy
     diam_score = max(0.0, 100.0 - diam_err_pct * 2.5)
@@ -150,19 +150,19 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
     if score >= 90.0:
         grade = "S"
         passed = True
-        status_msg = "卓越達成！各項物理量完美吻合已知月球地質特徵！"
+        status_msg = "Outstanding! Every quantity matches the known lunar feature."
     elif score >= 75.0:
         grade = "A"
         passed = True
-        status_msg = "任務成功！物理數值極其接近目標範圍。"
+        status_msg = "Mission accomplished! The values are very close to the target."
     elif score >= 60.0:
         grade = "B"
         passed = True
-        status_msg = "基本達標。可微調參數以獲得更精確的模擬匹配。"
+        status_msg = "Passed. Fine-tune the parameters for a closer match."
     else:
         grade = "C"
         passed = False
-        status_msg = "未達標準。數值偏差較大，請參考科學提示重新調整小行星質量與速度。"
+        status_msg = "Not passed. The values are far off: see the tip and adjust the asteroid's mass and velocity."
 
     # A measurement that scores zero fails the mission outright.  Without this,
     # an exact diameter alone reaches 0.6 * 100 = 60 points and passes, however
@@ -170,11 +170,10 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
     if diam_score == 0.0 or (target_depth and depth_score == 0.0):
         grade = "C"
         passed = False
-        status_msg = "未達標準。坑徑誤差達 40% 以上或深度誤差達 50% 以上，任一項完全不符即不及格。"
+        status_msg = "Not passed. A diameter error of 40% or more, or a depth error of 50% or more, fails the mission outright."
 
-    feedback = f"{status_msg} 坑徑誤差: {diam_err_pct:.1f}%，深度誤差: {depth_err_pct:.1f}%。"
-    if feedback_notes:
-        feedback += " " + " ".join(feedback_notes)
+    # One sentence per part, so the interface can translate each on its own
+    feedback_parts = [status_msg, f"Diameter error: {diam_err_pct:.1f}%, depth error: {depth_err_pct:.1f}%.", *feedback_notes]
 
     return {
         "challenge_id": challenge_id,
@@ -185,6 +184,7 @@ def evaluate_challenge(challenge_id: str, result: dict, params: dict) -> dict:
         "diameter_error_pct": round(diam_err_pct, 2),
         "depth_error_pct": round(depth_err_pct, 2),
         "xp_gain": GRADE_XP[grade],   # before repeat-attempt rules; the API adjusts it
-        "feedback": feedback,
+        "feedback": " ".join(feedback_parts),
+        "feedback_parts": feedback_parts,
         "badge": ch.get("badge"),
     }

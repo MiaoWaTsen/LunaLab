@@ -20,7 +20,7 @@ LunaLab is a modular, web-based platform for simulating lunar impact craters usi
 8. **Surface Age** — Date a surface by counting its craters (Neukum 2001 production and chronology functions, Poisson likelihood): watch a synthetic plain collect craters over 4 billion years, see small craters saturate, then test the method on the Chang'e-6 landing site against its 2.807 Ga sample age, and on seven sampled landing sites counted in circles vs on their mapped geological units
 9. **3D Moon** — Pick the impact site on a globe built from LRO imagery and LOLA elevation, lit by the real Sun for the current date
 10. **Batch Inference** — Infer the impactor behind every crater in a list, or around a landing site, as a background job with progress, cancellation and CSV download
-11. **Six interface languages** — English, Traditional and Simplified Chinese, Japanese, German and French, switchable from the navbar
+11. **English and Traditional Chinese** — the whole interface, charts and generated explanations included, switchable from the navbar
 12. **Accounts & Missions** — Sign in to keep your own experiments, and earn research XP on challenge missions graded against known craters
 
 ---
@@ -183,33 +183,44 @@ schema, append a migration with the next version number; never edit a released o
 
 ## Interface Languages
 
-The language button in the navbar switches the interface between English, 繁體中文, 简体中文,
-日本語, Deutsch and Français. The choice is remembered; the first visit follows the browser.
+The language button in the navbar switches the interface between English and 繁體中文.
+The choice is remembered; the first visit follows the browser (any Chinese reads Traditional).
 
 The pages are written in English and are not marked up for translation. `frontend/i18n.js`
 translates what is on screen by looking each piece of text up in `frontend/i18n/messages.json`,
 keyed by the English source, and keeps watching, so text that scripts insert later is
 translated as it appears. A string with no translation stays in English.
 
+Charts are translated too: `Plotly.newPlot` and `Plotly.react` are wrapped, so titles, axis
+titles, trace names, annotations, hover templates and category names go through the same
+table, and charts are redrawn when the language changes. Literature citations are marked
+`translate="no"` and stay as published.
+
 To translate a new string, add a row to `messages.json`:
 
 ```json
-"{0} craters (limit {1})": [null, "{0} 個撞擊坑（上限 {1}）", "{0} 个撞击坑（上限 {1}）", "クレーター {0} 個（上限 {1}）", "{0} Krater (Limit {1})", "{0} cratères (limite {1})"]
+"{0} craters (limit {1})": [null, "{0} 個撞擊坑（上限 {1}）"]
 ```
 
 - The columns follow `languages` at the top of the file; the first (English) is `null`.
 - `{0}` stands for a value a script interpolates; `<0>…</0>` for an inline element such as
   `<strong>`, which the translation may move; `<0/>` for one it must not touch.
+- An interpolated value is itself looked up, so `"Crater count: {0}"` translates a known
+  phrase in `{0}` as well.
+- The first matching pattern wins: put a specific pattern (`+{0} Research XP Awarded`) before
+  a looser one (`+{0} XP Awarded`). A test fails if one is shadowed.
 - Icons and arrows around a phrase are not part of the key.
 - Bump `MESSAGES_VERSION` in `i18n.js` so browsers drop their cached copy.
 
 In the browser console, `LunaI18n.missing` lists the strings met on the current page that
 have no translation. `tests/test_i18n_messages.py` checks the table; an E2E test walks every
-page and fails if any interface text is left untranslated.
+page with its results in Traditional Chinese and fails on any untranslated text, then in
+English and fails on any Chinese. Text that is only numbers and units, and dates (written by
+the browser in the page's language), are left as they are.
 
-Not translated yet: chart labels, the long generated explanations with computed numbers
-(case study findings, surface-age commentary), preset descriptions, literature references,
-and text that comes from the server (mission descriptions, validation messages).
+Server text is written in English, mission descriptions and challenge feedback included, and
+translated in the browser like the rest. Challenge feedback comes as `feedback_parts`, one
+sentence each, so each sentence is translated on its own.
 
 ---
 

@@ -28,8 +28,13 @@
  *   Icons, arrows and opaque children at either end are not part of the
  *   key: "<0/> Craters", "📋 Craters" and "Craters →" all look up "Craters".
  *
- * Not translated: charts (Plotly redraws its own labels), anything marked
- * translate="no" or data-no-i18n (user names, raw data), and numbers.
+ * Charts: Plotly draws its own text, so Plotly.newPlot and Plotly.react are
+ * wrapped to translate titles, axis titles, trace names, annotations and
+ * hover templates before drawing, and charts are redrawn when the language
+ * changes.  Hover templates are looked up whole, "<br>" and "%{x}" included.
+ *
+ * Not translated: anything marked translate="no" or data-no-i18n (user
+ * names, raw data), numbers, and literature references.
  *
  * Loaded before app.js on every page.  Exposes window.LunaI18n.
  */
@@ -39,14 +44,10 @@
     const LANGUAGES = [
         { code: 'en',    name: 'English' },
         { code: 'zh-TW', name: '繁體中文' },
-        { code: 'zh-CN', name: '简体中文' },
-        { code: 'ja',    name: '日本語' },
-        { code: 'de',    name: 'Deutsch' },
-        { code: 'fr',    name: 'Français' },
     ];
     const SOURCE_LANGUAGE = 'en';
     // Bump when messages.json changes, so browsers drop their cached copy
-    const MESSAGES_VERSION = '1';
+    const MESSAGES_VERSION = '2';
     const MESSAGES_URL = `/static/i18n/messages.json?v=${MESSAGES_VERSION}`;
     const LANG_KEY = 'lunalab_lang';
     const CACHE_KEY = 'lunalab_i18n_messages';
@@ -54,6 +55,7 @@
     const INLINE_TAGS = new Set(['STRONG', 'EM', 'B', 'I', 'SPAN', 'A', 'CODE', 'SUB', 'SUP',
                                  'SMALL', 'KBD', 'ABBR', 'BR', 'U', 'MARK']);
     const SKIPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'SVG', 'CANVAS', 'TEXTAREA', 'NOSCRIPT', 'PRE']);
+    const SKIPPED_SELECTOR = 'script, style, svg, canvas, textarea, noscript, pre, [translate="no"], [data-no-i18n], .js-plotly-plot';
     const TRANSLATED_ATTRIBUTES = ['placeholder', 'title', 'aria-label'];
     // Two Latin letters in a row, or any CJK character: there is a word here
     const HAS_WORDS = /[A-Za-zÀ-ÿ]{2}|[぀-ヿ一-鿿]/;
@@ -81,10 +83,8 @@
     function fromBrowser() {
         for (const tag of navigator.languages || [navigator.language || '']) {
             const lower = tag.toLowerCase();
-            if (lower.startsWith('zh')) {
-                // Traditional script regions; everything else Chinese reads Simplified
-                return /-(tw|hk|mo|hant)/.test(lower) ? 'zh-TW' : 'zh-CN';
-            }
+            // Any Chinese: Traditional is the only Chinese offered
+            if (lower.startsWith('zh')) return 'zh-TW';
             const base = lower.split('-')[0];
             if (supported(base)) return base;
         }
@@ -386,6 +386,77 @@
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Charts
+    // -----------------------------------------------------------------------
+
+    const CHART_STRING_KEYS = new Set(['title', 'text', 'name', 'hovertemplate', 'texttemplate']);
+    const CHART_CATEGORY_KEYS = new Set(['x', 'y', 'labels']);
+    // Every chart translation made -> its English.  Plotly copies some of the
+    // objects it is given (a string title becomes { text }), so a chart's
+    // source is recovered from the text on it, not from the object.
+    const chartSource = new Map();
+    const charts = new Set();           // chart elements drawn so far
+
+    function translateChartString(value) {
+        const source = chartSource.get(value) ?? value;
+        const target = translate(source);
+        if (target !== source) chartSource.set(target, source);
+        return target;
+    }
+
+    /** Translate a chart's labels in place. */
+    function translateChart(node) {
+        if (Array.isArray(node)) {
+            if (node.length && typeof node[0] !== 'object') return;   // a data column, or categories (above)
+            node.forEach(translateChart);
+            return;
+        }
+        if (!node || typeof node !== 'object') return;
+        for (const [key, value] of Object.entries(node)) {
+            if (typeof value === 'string' && CHART_STRING_KEYS.has(key)) {
+                node[key] = translateChartString(value);
+            } else if (CHART_CATEGORY_KEYS.has(key) && Array.isArray(value) && value.length
+                       && value.every(v => typeof v === 'string')) {
+                // Category names along an axis (sites, parameters)
+                node[key] = value.map(translateChartString);
+            } else if (key === 'ticktext' && Array.isArray(value)) {
+                node[key] = value.map(v => (typeof v === 'string' ? translateChartString(v) : v));
+            } else if (value && typeof value === 'object') {
+                translateChart(value);
+            }
+        }
+    }
+
+    function wrapPlotly() {
+        const plotly = window.Plotly;
+        if (!plotly || plotly.__lunaI18n) return;
+        for (const name of ['newPlot', 'react']) {
+            const original = plotly[name];
+            if (typeof original !== 'function') continue;
+            plotly[name] = function (target, data, layout, ...rest) {
+                const element = typeof target === 'string' ? document.getElementById(target) : target;
+                translateChart(data);
+                translateChart(layout);
+                if (element) charts.add(element);
+                return original.call(this, target, data, layout, ...rest);
+            };
+        }
+        plotly.__lunaI18n = true;
+    }
+
+    function translateCharts() {
+        const plotly = window.Plotly;
+        for (const element of Array.from(charts)) {
+            if (!element.isConnected) { charts.delete(element); continue; }
+            // Plotly keeps the objects it was given: re-translating them keeps
+            // any later relayout (a moved marker, a zoom)
+            if (plotly && typeof plotly.react === 'function' && element.data) {
+                plotly.react(element, element.data, element.layout);
+            }
+        }
+    }
+
     function translateTitle() {
         if (titleSource === null) titleSource = document.title;
         document.title = translate(titleSource);
@@ -413,6 +484,9 @@
             element = element.parentElement;
         }
         if (!element) return;
+        // Inside a chart or another skipped subtree (Plotly redraws its SVG
+        // text, already translated through the chart wrapper)
+        if (element.closest(SKIPPED_SELECTOR)) return;
         pending.add(element);
         if (!flushScheduled) {
             flushScheduled = true;
@@ -488,11 +562,13 @@
         try { localStorage.setItem(LANG_KEY, code); } catch (_) {}
         buildDictionary();
         translatePage();
+        translateCharts();
         const select = document.querySelector('.lang-select__menu');
         if (select) select.value = code;
         document.dispatchEvent(new CustomEvent('lunalab:languagechange', { detail: { language: code } }));
     }
 
+    wrapPlotly();
     language = initialLanguage();
     document.documentElement.lang = language;
     messages = loadCached();
@@ -509,6 +585,7 @@
             buildDictionary();
         }
         translatePage();
+        translateCharts();   // drawn before the messages arrived
     })();
 
     // This script sits at the end of <body>, so the static page is already

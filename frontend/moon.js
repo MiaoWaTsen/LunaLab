@@ -79,6 +79,9 @@ const sunToggle = document.getElementById('btn-sun-toggle');
 const sunInfo = document.getElementById('sun-info');
 let realSunlight = true;
 
+// The date follows the interface language
+document.addEventListener('lunalab:languagechange', () => applyLighting());
+
 function applyLighting() {
     if (realSunlight && illumination) {
         const s = illumination.sub_solar;
@@ -87,7 +90,7 @@ function applyLighting() {
         ambientLight.intensity = 0.35;   // faint "earthshine" so the night side stays pickable
         fillLight.visible = false;
         if (sunInfo) {
-            const when = new Date(illumination.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+            const when = new Date(illumination.at).toLocaleString(document.documentElement.lang || 'en-US', { dateStyle: 'medium', timeStyle: 'short' });
             const lib = illumination.sub_earth;
             const fmt = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}°`;
             sunInfo.textContent = `${when} · ${illumination.phase_name}, ${Math.round(illumination.illuminated_fraction * 100)}% lit · libration ${fmt(lib.longitude)} lon, ${fmt(lib.latitude)} lat`;

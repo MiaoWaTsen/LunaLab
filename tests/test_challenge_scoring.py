@@ -97,7 +97,7 @@ def test_energy_exactly_at_threshold_has_no_penalty():
     evaluation = dinosaur(1.0e23)
     assert evaluation["score"] == 100.0
     assert evaluation["grade"] == "S"
-    assert "達標" in evaluation["feedback"]
+    assert "Energy target reached" in evaluation["feedback"]
 
 
 def test_energy_just_below_threshold_is_penalised():
@@ -105,7 +105,7 @@ def test_energy_just_below_threshold_is_penalised():
     # penalty = (1 - 0.99) * 40 = 0.4 points; the depth is not scored here
     assert evaluation["score"] == pytest.approx(99.6)
     assert evaluation["depth_error_pct"] == 0.0
-    assert "尚未達到" in evaluation["feedback"]
+    assert "below the extinction-level threshold" in evaluation["feedback"]
 
 
 # --- Mission 2: maximum angle (20°) ---------------------------------------
@@ -118,14 +118,14 @@ def grazing(angle: float) -> dict:
 def test_angle_exactly_at_limit_is_accepted():
     evaluation = grazing(20.0)
     assert evaluation["score"] == 100.0
-    assert "成功採用" in evaluation["feedback"]
+    assert "A grazing" in evaluation["feedback"]
 
 
 def test_angle_just_above_limit_is_penalised():
     evaluation = grazing(20.1)
     # penalty = 0.1° * 2.5 = 0.25 points
     assert evaluation["score"] == pytest.approx(99.8, abs=0.06)
-    assert "高於任務要求的上限" in evaluation["feedback"]
+    assert "above the mission's limit" in evaluation["feedback"]
 
 
 def test_unknown_challenge_is_rejected():

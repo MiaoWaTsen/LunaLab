@@ -198,7 +198,7 @@
     </footer>
 </div>
 
-<script src="/static/i18n.js?v=1"></script>
+<script src="/static/i18n.js?v=2"></script>
 <script src="/static/app.js?v=9"></script>
 <script>
 let challenges = [];
@@ -378,8 +378,13 @@ function displayEvaluationResults(evaluation, simulation, profile, elevation) {
     const xpBadge = document.getElementById('eval-xp-badge');
     xpBadge.textContent = evaluation.xp_gain > 0 ? `+${evaluation.xp_gain} Research XP Awarded` : 'No XP this time';
     xpBadge.title = evaluation.xp_note || '';
-    document.getElementById('eval-feedback').textContent =
-        evaluation.xp_note ? `${evaluation.feedback} ${evaluation.xp_note}` : evaluation.feedback;
+    // One block per sentence: each is translated on its own
+    const feedback = document.getElementById('eval-feedback');
+    feedback.replaceChildren(...[...evaluation.feedback_parts, evaluation.xp_note].filter(Boolean).map(text => {
+        const line = document.createElement('div');
+        line.textContent = text;
+        return line;
+    }));
 
     document.getElementById('eval-crater-diam').textContent = formatLength(simulation.crater_diameter);
     document.getElementById('eval-diam-err').textContent = evaluation.diameter_error_pct + '%';

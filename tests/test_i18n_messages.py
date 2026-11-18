@@ -16,7 +16,7 @@ import re
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LANGUAGES = ["en", "zh-TW", "zh-CN", "ja", "de", "fr"]
+LANGUAGES = ["en", "zh-TW"]
 
 
 @pytest.fixture(scope="module")
@@ -84,15 +84,13 @@ def test_keys_are_normalised_the_way_the_engine_reads_them(table):
         assert source == " ".join(source.split()), repr(source)
 
 
-def test_chinese_columns_use_their_own_script(table):
+def test_chinese_column_uses_traditional_characters(table):
     # Pairs of characters that differ between the two scripts
     pairs = ["擊击", "體体", "學学", "進进", "這这", "個个", "們们", "為为", "與与", "實实", "驗验",
              "結结", "構构", "說说", "選选", "項项", "關关", "開开", "數数", "據据", "載载", "執执"]
-    traditional_only = {pair[0] for pair in pairs}
     simplified_only = {pair[1] for pair in pairs}
     for source, row in table["messages"].items():
         assert not (set(row[1]) & simplified_only), f"Simplified characters in zh-TW: {source}"
-        assert not (set(row[2]) & traditional_only), f"Traditional characters in zh-CN: {source}"
 
 
 def test_every_page_loads_the_translation_script_before_app_js():
@@ -103,3 +101,19 @@ def test_every_page_loads_the_translation_script_before_app_js():
             html = f.read()
         i18n, app = html.find("/static/i18n.js"), html.find("/static/app.js")
         assert 0 <= i18n < app, os.path.basename(page)
+
+
+def test_no_pattern_is_shadowed_by_an_earlier_one(table):
+    """
+    The engine uses the first pattern that matches, in file order.  An
+    earlier, looser pattern ("+{0} XP Awarded") would catch every string
+    meant for a later, more specific one ("+{0} Research XP Awarded").
+    """
+    def regex(source):
+        return re.compile("^" + re.sub(r"\\\{\d+\\\}", "(.+?)", re.escape(source)) + "$")
+
+    patterns = [s for s in table["messages"] if re.search(r"\{\d+\}", s)]
+    for i, earlier in enumerate(patterns):
+        for later in patterns[i + 1:]:
+            example = re.sub(r"\{\d+\}", "7", later)
+            assert not regex(earlier).match(example), f"{later!r} is shadowed by {earlier!r}"
